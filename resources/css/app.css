@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.highlight-field {
+    background-color: #fffacd;
+    /* LemonChiffon */
+    /* border-color: #ffd700; /* Gold - might be too strong with existing borders */
+    /* Consider a subtle border or let Tailwind's default input border handle it */
+}
+
+/* If you have dark mode and want to adjust specifically for inputs */
+.dark .dark\:bg-gray-900.highlight-field {
+    background-color: #6e6131;
+    /* A darker, less saturated yellow for dark mode inputs */
+}
+
+/* For non-input elements in dark mode that get highlight-field */
+.dark .highlight-field-display {
+    background-color: #4d4423;
+    /* Background for p tags or divs in dark mode */
+    padding: 2px 4px;
+    /* Optional padding for display elements */
+    border-radius: 3px;
+    /* Optional rounded corners */
+}
+
+/* For non-input elements in light mode */
+.highlight-field-display {
+    background-color: #fffacd;
+    /* LemonChiffon */
+    padding: 2px 4px;
+    /* Optional padding for display elements */
+    border-radius: 3px;
+    /* Optional rounded corners */
+}
