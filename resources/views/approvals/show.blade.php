@@ -9,12 +9,6 @@
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 md:p-8 text-gray-900 dark:text-gray-100 space-y-6">
-                    @if(session('error'))
-                        <div class="mb-4 p-4 bg-red-100 text-red-700 border border-red-400 rounded">
-                            {{ session('error') }}
-                        </div>
-                    @endif
-                    
                     {{-- Request Timeline --}}
                     <div class="border-b pb-4 mb-4">
                         <h3 class="text-lg font-semibold mb-4">Request Timeline</h3>
@@ -197,23 +191,30 @@
                                         @csrf
                                         <div class="mb-4">
                                             <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
-                                                Full Name
+                                                Type your full name
                                             </label>
                                             <input type="text" 
                                                 id="name" 
                                                 name="name" 
                                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 uppercase"
                                                 style="text-transform: uppercase;"
+                                                placeholder="Your legal name"
+                                                value="{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}"
                                                 required>
                                         </div>
 
                                         {{-- Signature Selection --}}
                                         <div class="mb-4">
                                             <label class="block text-sm font-medium text-gray-700 mb-2">
-                                                Select Signature Style
+                                                Choose your signature style
                                             </label>
-                                            <div id="signatureStyles" class="grid grid-cols-2 gap-4 mb-4">
-                                                {{-- Signature styles will be loaded here --}}
+                                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                                                <div id="signatureStyles" class="grid grid-cols-2 gap-4">
+                                                    {{-- Signature styles will be loaded here --}}
+                                                </div>
+                                                <div class="mt-3 text-xs text-gray-500 text-center">
+                                                    Select a style and your name will be converted to a signature
+                                                </div>
                                             </div>
                                         </div>
 
@@ -253,7 +254,13 @@
                     @endif
 
                     <div class="mt-6">
-                        <a href="{{ route('approvals.index') }}" class="text-sm text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200">&laquo; Back to Approvals List</a>
+                        <a href="{{ route('approvals.index') }}" 
+                            class="inline-flex items-center px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 hover:text-blue-600 hover:border-blue-300 active:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                            </svg>
+                            Back to Approvals List
+                        </a>
                     </div>
                 </div>
             </div>
@@ -265,9 +272,64 @@
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Homemade+Apple&family=Pacifico&family=Dancing+Script&display=swap');
     
+    .signature-style {
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: white;
+        border: 2px solid #e5e7eb;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        padding: 1rem;
+    }
+
     .signature-style.selected {
-        border-color: #3b82f6;
+        border-color: #2563eb;
         background-color: #eff6ff;
+        box-shadow: 0 0 0 2px #3b82f6;
+    }
+
+    .signature-style:hover:not(.selected) {
+        border-color: #93c5fd;
+        background-color: #f8fafc;
+    }
+
+    .preview-text {
+        font-size: 1.75rem;
+        line-height: 1.2;
+        text-align: center;
+        width: 100%;
+        color: #1f2937;
+        margin-bottom: 0.5rem;
+        word-break: break-word;
+    }
+
+    .style-name {
+        font-size: 0.75rem;
+        color: #6b7280;
+        text-align: center;
+        width: 100%;
+    }
+
+    .signature-style::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(to right, #2563eb, #3b82f6);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .signature-style.selected::after {
+        opacity: 1;
     }
 </style>
 
@@ -281,7 +343,41 @@
     const commentError = document.getElementById('commentError');
     const comments = document.getElementById('comments');
 
-    // Load signature styles when the modal opens
+    // Function to convert text to base64 image
+    function textToImage(text, fontFamily) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size
+        canvas.width = 600;
+        canvas.height = 150;
+        
+        // Configure text style
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1f2937';
+        
+        // Calculate font size based on text length
+        const maxFontSize = 72;
+        const minFontSize = 48;
+        const calculatedSize = Math.max(minFontSize, Math.min(maxFontSize, 800 / text.length));
+        
+        ctx.font = `${calculatedSize}px ${fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Add subtle shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+        ctx.shadowBlur = 2;
+        ctx.shadowOffsetY = 2;
+        
+        // Draw text
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+        
+        return canvas.toDataURL('image/png');
+    }
+
+    // Load signature styles
     function loadSignatureStyles() {
         fetch('{{ route("signature-styles.index") }}')
             .then(response => response.json())
@@ -290,14 +386,19 @@
                 container.innerHTML = '';
                 data.forEach(style => {
                     const div = document.createElement('div');
-                    div.className = 'signature-style border rounded p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700';
+                    div.className = 'signature-style';
                     
                     const signatureText = document.createElement('div');
-                    signatureText.className = 'text-2xl preview-text';
+                    signatureText.className = 'preview-text';
                     signatureText.style.fontFamily = style.font_family;
                     signatureText.textContent = 'Your Signature';
-                    div.appendChild(signatureText);
                     
+                    const styleName = document.createElement('div');
+                    styleName.className = 'style-name';
+                    styleName.textContent = style.name;
+                    
+                    div.appendChild(signatureText);
+                    div.appendChild(styleName);
                     div.onclick = () => selectStyle(style.id, style.font_family, div);
                     container.appendChild(div);
                 });
@@ -332,15 +433,16 @@
         commentError.classList.add('hidden');
         comments.classList.remove('border-red-500');
         
-        // Reset all form values
-        comments.value = '';
-        document.getElementById('name').value = '';
-        document.getElementById('signature').value = '';
-        selectedStyle = null;
+        // Set the user's full name automatically
+        const fullName = '{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}';
+        document.getElementById('name').value = fullName.toUpperCase();
         
         actionForm.action = formAction;
         actionModal.classList.remove('hidden');
         loadSignatureStyles();
+        
+        // Trigger the preview update with the full name
+        updateAllPreviews(fullName);
     }
 
     function closeModal() {
@@ -360,11 +462,16 @@
             return;
         }
         
-        if (!selectedStyle || !document.getElementById('signature').value) {
+        if (!selectedStyle || !document.getElementById('name').value.trim()) {
             e.preventDefault();
-            alert('Please select a signature style and sign your name.');
+            alert('Please enter your name and select a signature style.');
             return;
         }
+
+        // Convert signature text to image (already in uppercase)
+        const name = document.getElementById('name').value;
+        const signatureImage = textToImage(name, selectedStyle.fontFamily);
+        document.getElementById('signature').value = signatureImage;
     });
 
     comments.addEventListener('input', function() {
@@ -392,15 +499,18 @@
         element.classList.add('selected');
         document.getElementById('signatureStyle').value = styleId;
         
-        // Update signature value
+        // Update signature preview with uppercase name
         const name = document.getElementById('name').value.toUpperCase();
-        document.getElementById('signature').value = name;
+        updateAllPreviews(name);
     }
 
-    // Name input handler - updates all previews dynamically
+    // Name input handler - updates all previews dynamically and ensures uppercase
     document.getElementById('name').addEventListener('input', function() {
-        const name = this.value;
-        document.getElementById('signature').value = name.toUpperCase();
-        updateAllPreviews(name);
+        const upperName = this.value.toUpperCase();
+        // Only update the input value if it's different to avoid cursor jumping
+        if (this.value !== upperName) {
+            this.value = upperName;
+        }
+        updateAllPreviews(upperName);
     });
 </script>

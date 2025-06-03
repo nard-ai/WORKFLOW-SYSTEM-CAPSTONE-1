@@ -18,6 +18,17 @@
                     {{-- Request Timeline --}}
                     <div class="border-b pb-4 mb-4">
                         <h3 class="text-lg font-semibold mb-4">Request Timeline</h3>
+                        @if($formRequest->status === 'Approved')
+                            <div class="mb-4 flex justify-end">
+                                <a href="{{ route('request.print', $formRequest->form_id) }}" target="_blank" 
+                                   class="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-blue-700 focus:bg-blue-700 active:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                                    </svg>
+                                    Print Request
+                                </a>
+                            </div>
+                        @endif
                         <div class="relative">
                             {{-- Timeline line --}}
                             <div class="absolute h-full w-1 bg-gradient-to-b from-blue-500 via-blue-300 to-gray-200 left-4 top-4"></div>
@@ -147,25 +158,35 @@
                         </div>
 
                         {{-- Signatures Section --}}
-                        <div class="mt-4">
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-2">
+                        <div class="mt-8">
+                            <h3 class="text-lg font-semibold mb-4">Signatures</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 @foreach ($formRequest->approvals->sortBy('action_date') as $approval)
                                     @if($approval->action !== 'Submitted' && ($approval->signature_name || $approval->signature_data))
-                                        <div class="flex flex-col">
+                                        <div class="signature-card bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
                                             @if($approval->signature_data)
-                                                <div class="mb-0.5">
+                                                <div class="signature-image-container h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
                                                     <img src="{{ $approval->signature_data }}" 
                                                         alt="Digital Signature" 
-                                                        class="h-12 object-contain">
+                                                        class="max-h-16 object-contain">
                                                 </div>
                                             @endif
-                                            <div class="space-y-0.5">
-                                                <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}</p>
-                                                <div class="flex items-center gap-1">
-                                                    <span class="text-xs text-blue-600">{{ $approval->action }}</span>
-                                                    <span class="text-xs text-gray-500">{{ \Carbon\Carbon::parse($approval->action_date)->format('M j, Y') }}</span>
+                                            <div class="mt-3 text-center">
+                                                <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                    {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                                </p>
+                                                <div class="flex items-center justify-center gap-2 mt-1">
+                                                    <span class="text-xs px-2 py-1 rounded-full {{ 
+                                                        $approval->action === 'Approved' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
+                                                        ($approval->action === 'Rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : 
+                                                        'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200') 
+                                                    }}">
+                                                        {{ $approval->action }}
+                                                    </span>
+                                                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                                                        {{ \Carbon\Carbon::parse($approval->action_date)->format('M j, Y') }}
+                                                    </span>
                                                 </div>
-                                                <div class="pt-0.5 border-t border-gray-200 dark:border-gray-700 w-36"></div>
                                             </div>
                                         </div>
                                     @endif
@@ -192,8 +213,8 @@
                     {{-- Back to Dashboard Link --}}
                     <div class="mt-6">
                         <a href="{{ route('dashboard') }}" 
-                            class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200">
-                            <svg class="w-5 h-5 mr-2 -ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            class="inline-flex items-center px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 hover:text-blue-600 hover:border-blue-300 active:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
                             </svg>
                             Back to Dashboard

@@ -48,6 +48,21 @@ class RequestController extends Controller
     public function submitForConfirmation(Request $request): RedirectResponse
     {
         $requestType = $request->input('request_type');
+        $user = Auth::user();
+
+        // Check for pending IOM requests if this is a new IOM request
+        if ($requestType === 'IOM') {
+            $pendingRequests = FormRequest::where('requested_by', $user->accnt_id)
+                ->where('form_type', 'IOM')
+                ->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval'])
+                ->exists();
+
+            if ($pendingRequests) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'You cannot submit a new IOM request while you have pending requests. Please wait for your previous requests to be completed.');
+            }
+        }
 
         $allRules = [
             'request_type' => ['required', 'string', Rule::in(['IOM', 'Leave'])],
@@ -141,6 +156,21 @@ class RequestController extends Controller
 
         $requestType = $validatedData['request_type'];
         $user = Auth::user();
+
+        // Check for pending IOM requests if this is a new IOM request
+        if ($requestType === 'IOM') {
+            $pendingRequests = FormRequest::where('requested_by', $user->accnt_id)
+                ->where('form_type', 'IOM')
+                ->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval'])
+                ->exists();
+
+            if ($pendingRequests) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', 'You cannot submit a new IOM request while you have pending requests. Please wait for your previous requests to be completed.');
+            }
+        }
+
         $fromDepartmentId = $user->department_id;
 
         try {
@@ -320,6 +350,34 @@ class RequestController extends Controller
         }
 
         return view('requests.track', compact('formRequest'));
+    }
+
+    /**
+     * Display a printable view of a completed request.
+     */
+    public function printView($formId): View
+    {
+        $formRequest = FormRequest::with([
+            'requester.department',
+            'fromDepartment',
+            'toDepartment',
+            'iomDetails',
+            'leaveDetails',
+            'approvals.approver.employeeInfo',
+            'currentApprover'
+        ])->findOrFail($formId);
+
+        // Check if request is completed and user has permission to view
+        if ($formRequest->status !== 'Approved') {
+            abort(403, 'Only completed requests can be printed.');
+        }
+
+        if (Auth::id() !== $formRequest->requested_by && 
+            Auth::user()->accessRole !== 'Approver') {
+            abort(403, 'You do not have permission to view this request.');
+        }
+
+        return view('requests.print', compact('formRequest'));
     }
 
     // ... (show, edit, update, destroy methods can be added later)

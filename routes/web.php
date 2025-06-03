@@ -74,6 +74,8 @@ Route::middleware('auth')->group(function () {
 
     // Approvals routes
     Route::post('/approvals/batch', [ApprovalController::class, 'batchAction'])->name('approvals.batch');
+
+    Route::get('/request/{formId}/print', [RequestController::class, 'printView'])->name('request.print');
 });
 
 require __DIR__.'/auth.php';

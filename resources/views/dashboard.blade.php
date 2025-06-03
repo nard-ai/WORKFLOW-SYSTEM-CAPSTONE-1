@@ -196,12 +196,8 @@
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ Str::limit($request->title, 30) }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                                                 @php
-                                                    $date = $request->date_submitted;
-                                                    $month = (int)$date->format('m');
-                                                    $year = (int)$date->format('Y');
-                                                    $academicYear = ($month >= 6) 
-                                                        ? $year . '-' . ($year + 1)
-                                                        : ($year - 1) . '-' . $year;
+                                                    // Fixed academic year instead of dynamic calculation
+                                                    $academicYear = '2024-2025';
                                                 @endphp
                                                 {{ $academicYear }}
                                             </td>
