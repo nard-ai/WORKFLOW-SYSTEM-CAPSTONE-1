@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\ApproverPermission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ApproverAssignmentController extends Controller
 {
@@ -16,59 +18,87 @@ class ApproverAssignmentController extends Controller
      */
     public function index(): View
     {
-        $user = Auth::user();
-        
-        // Only allow access if user is a Department Head and an Approver
-        if ($user->position !== 'Head' || $user->accessRole !== 'Approver') {
-            abort(403, 'Only department heads can manage approvers.');
-        }
+        $employees = User::where('department_id', Auth::user()->department_id)
+            ->where('accnt_id', '!=', Auth::id()) // Exclude current user
+            ->with(['employeeInfo', 'approverPermissions'])
+            ->get();
 
-        // Get all staff from the same department
-        $departmentStaff = User::where('department_id', $user->department_id)
-                            ->where('accnt_id', '!=', $user->accnt_id)
-                            ->where('position', '!=', 'Head') // Don't show other heads
-                            ->orderBy('username')
-                            ->get();
-
-        return view('approver-assignments.index', compact('departmentStaff'));
+        return view('approver-assignments.index', compact('employees'));
     }
 
     /**
-     * Update the approver status of a staff member.
+     * Update the approver status and permissions of a staff member.
      */
     public function update(Request $request, User $user): RedirectResponse
     {
-        $authenticatedUser = Auth::user();
-        
-        // Validate that the authenticated user is a Department Head and an Approver
-        if ($authenticatedUser->position !== 'Head' || $authenticatedUser->accessRole !== 'Approver') {
-            return redirect()->back()->with('error', 'Only department heads can manage approvers.');
-        }
-
-        // Validate that the target user is in the same department and not a head
-        if ($user->department_id !== $authenticatedUser->department_id || $user->position === 'Head') {
-            return redirect()->back()->with('error', 'You can only manage approver status of staff in your department.');
-        }
-
-        // Validate the request
-        $validated = $request->validate([
-            'is_approver' => 'required|boolean'
+        // Log the incoming request data
+        Log::info('Approver assignment update request:', [
+            'user_id' => $user->accnt_id,
+            'request_data' => $request->all()
         ]);
 
+        // Validate that the user being updated is in the same department
+        if ($user->department_id !== Auth::user()->department_id) {
+            return back()->with('error', 'You can only manage approvers in your own department.');
+        }
+
+        // Validate that we're not trying to change a Head's role
+        if ($user->position === 'Head') {
+            return back()->with('error', 'Department Head roles cannot be modified.');
+        }
+
         try {
+            // Validate the request
+            $validated = $request->validate([
+                'accessRole' => 'required|in:Viewer,Approver',
+                'can_approve_pending' => 'nullable|in:0,1',
+                'can_approve_in_progress' => 'nullable|in:0,1',
+            ]);
+
             DB::beginTransaction();
 
-            $user->accessRole = $validated['is_approver'] ? 'Approver' : 'Requester';
+            // Update the user's role
+            $user->accessRole = $request->accessRole;
             $user->save();
 
-            DB::commit();
+            Log::info('User role updated:', [
+                'user_id' => $user->accnt_id,
+                'new_role' => $user->accessRole
+            ]);
 
-            return redirect()->route('approver-assignments.index')
-                ->with('success', "{$user->username}'s approver status has been updated successfully.");
+            // Update or create permissions if the user is an approver
+            if ($request->accessRole === 'Approver') {
+                $permissions = ApproverPermission::updateOrCreate(
+                    ['accnt_id' => $user->accnt_id],
+                    [
+                        'can_approve_pending' => $request->input('can_approve_pending', '0') === '1',
+                        'can_approve_in_progress' => $request->input('can_approve_in_progress', '0') === '1',
+                    ]
+                );
+
+                Log::info('Approver permissions updated:', [
+                    'user_id' => $user->accnt_id,
+                    'permissions' => $permissions->toArray()
+                ]);
+            } else {
+                // If user is changed to Viewer, remove their permissions
+                ApproverPermission::where('accnt_id', $user->accnt_id)->delete();
+                Log::info('Approver permissions removed for user:', ['user_id' => $user->accnt_id]);
+            }
+
+            DB::commit();
+            return back()->with('success', "Successfully updated {$user->employeeInfo->FirstName}'s role and permissions.");
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation failed:', ['errors' => $e->errors()]);
+            return back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
+            Log::error('Error updating approver assignment:', [
+                'user_id' => $user->accnt_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             DB::rollBack();
-            return redirect()->back()
-                ->with('error', 'An error occurred while updating the approver status.');
+            return back()->with('error', 'An error occurred while updating the user role and permissions: ' . $e->getMessage());
         }
     }
 } 

@@ -18,21 +18,19 @@
                     <x-nav-link :href="route('request.create')" :active="request()->routeIs('request.create')">
                         {{ __('Submit Form') }}
                     </x-nav-link>
-                    @if(Auth::user()->accessRole === 'Approver')
-                        <x-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
-                            {{ __('Approvals') }}
-                            @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
-                                <span class="absolute top-[15%] right-0 translate-x-3/4 inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full">
-                                    {{ $pendingApprovalCount }}
-                                </span>
-                            @endif
-                        </x-nav-link>
-
-                        @if(Auth::user()->position === 'Head')
-                            <x-nav-link :href="route('approver-assignments.index')" :active="request()->routeIs('approver-assignments.index')">
-                                {{ __('Manage Approvers') }}
-                            </x-nav-link>
+                    <x-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
+                        {{ __('Approvals') }}
+                        @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
+                            <span class="absolute top-[15%] right-0 translate-x-3/4 inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full">
+                                {{ $pendingApprovalCount }}
+                            </span>
                         @endif
+                    </x-nav-link>
+
+                    @if(Auth::user()->position === 'Head' && Auth::user()->accessRole === 'Approver')
+                        <x-nav-link :href="route('approver-assignments.index')" :active="request()->routeIs('approver-assignments.index')">
+                            {{ __('Manage Approvers') }}
+                        </x-nav-link>
                     @endif
                     {{-- <x-nav-link :href="route('request.create.leave')" :active="request()->routeIs('request.create.leave')">
                         {{ __('Request Leave') }}
@@ -105,16 +103,14 @@
             <x-responsive-nav-link :href="route('request.create')" :active="request()->routeIs('request.create')">
                 {{ __('Make a New Request') }}
             </x-responsive-nav-link>
-            @if(Auth::user()->accessRole === 'Approver')
-                <x-responsive-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
-                    {{ __('Approvals') }}
-                    @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
-                        <span class="inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full -ml-1">
-                            {{ $pendingApprovalCount }}
-                        </span>
-                    @endif
-                </x-responsive-nav-link>
-            @endif
+            <x-responsive-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
+                {{ __('Approvals') }}
+                @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
+                    <span class="inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full -ml-1">
+                        {{ $pendingApprovalCount }}
+                    </span>
+                @endif
+            </x-responsive-nav-link>
         </div>
 
         <!-- Responsive Settings Options -->

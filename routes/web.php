@@ -9,8 +9,16 @@ use App\Http\Controllers\ApproverAssignmentController;
 use App\Http\Controllers\SignatureStyleController;
 
 Route::get('/', function () {
+    if (auth()->check()) {
+        return redirect()->route('dashboard');
+    }
     return view('welcome');
 });
+
+// Redirect /login to root URL
+Route::get('/login', function () {
+    return redirect('/');
+})->name('login');
 
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])->name('dashboard');
@@ -54,13 +62,15 @@ Route::middleware('auth')->group(function () {
         ->middleware('can:view-approvals');
 
     // Approver Assignment Routes
-    Route::get('/approver-assignments', [ApproverAssignmentController::class, 'index'])
-        ->name('approver-assignments.index')
-        ->middleware('can:manage-approvers');
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/approver-assignments', [ApproverAssignmentController::class, 'index'])
+            ->name('approver-assignments.index')
+            ->middleware('can:manage-approvers');
 
-    Route::put('/approver-assignments/{user}', [ApproverAssignmentController::class, 'update'])
-        ->name('approver-assignments.update')
-        ->middleware('can:manage-approvers');
+        Route::put('/approver-assignments/{user}', [ApproverAssignmentController::class, 'update'])
+            ->name('approver-assignments.update')
+            ->middleware('can:manage-approvers');
+    });
 
     // Leave Requests -- REMOVED
     // Route::get('/requests/leave/create', [RequestController::class, 'createLeave'])->name('request.create.leave');
@@ -73,7 +83,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/signature-styles', [SignatureStyleController::class, 'index'])->name('signature-styles.index');
 
     // Approvals routes
-    Route::post('/approvals/batch', [ApprovalController::class, 'batchAction'])->name('approvals.batch');
+    Route::post('/approvals/batch', [ApprovalController::class, 'batch'])->name('approvals.batch');
 
     Route::get('/request/{formId}/print', [RequestController::class, 'printView'])->name('request.print');
 });

@@ -17,18 +17,21 @@ class ViewComposerServiceProvider extends ServiceProvider
     public function boot()
     {
         View::composer('layouts.navigation', function ($view) {
-            if (Auth::check() && Auth::user()->accessRole === 'Approver') {
-                $pendingCount = FormRequest::where(function($query) {
-                    $query->where('current_approver_id', Auth::id())
-                        ->orWhere(function($q) {
-                            $q->whereNull('current_approver_id')
-                              ->where('status', 'Pending')
-                              ->whereHas('requester', function($q2) {
-                                  $q2->where('department_id', Auth::user()->department_id);
-                              });
-                        });
+            if (Auth::check()) {
+                $user = Auth::user();
+                
+                $pendingCount = FormRequest::where(function($query) use ($user) {
+                    $query->where(function($q1) use ($user) {
+                        // From department pending noting
+                        $q1->where('from_department_id', $user->department_id)
+                           ->where('status', 'Pending');
+                    })->orWhere(function($q2) use ($user) {
+                        // To department pending approval
+                        $q2->where('to_department_id', $user->department_id)
+                           ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+                    });
                 })
-                ->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval'])
+                ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled'])
                 ->count();
             } else {
                 $pendingCount = 0;

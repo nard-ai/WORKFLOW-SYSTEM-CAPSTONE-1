@@ -192,7 +192,12 @@
                                     @foreach ($requests as $request)
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ $request->form_id }}</td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ $request->form_type }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                                    {{ $request->form_type === 'IOM' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' }}">
+                                                    {{ $request->form_type }}
+                                                </span>
+                                            </td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ Str::limit($request->title, 30) }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                                                 @php
@@ -214,25 +219,28 @@
                                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                                     @switch(strtolower($request->status))
                                                         @case('pending')
-                                                            bg-yellow-100 text-yellow-800
+                                                            bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
                                                             @break
                                                         @case('in progress')
-                                                            bg-blue-100 text-blue-800
+                                                            bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200
                                                             @break
                                                         @case('pending department head approval')
-                                                            bg-yellow-100 text-yellow-800
+                                                            bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
                                                             @break
                                                         @case('pending target department approval')
-                                                            bg-yellow-100 text-yellow-800
+                                                            bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
                                                             @break
                                                         @case('approved')
-                                                            bg-green-100 text-green-800
+                                                            bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
                                                             @break
                                                         @case('rejected')
-                                                            bg-red-100 text-red-800
+                                                            bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+                                                            @break
+                                                        @case('noted')
+                                                            bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200
                                                             @break
                                                         @default
-                                                            bg-gray-100 text-gray-800
+                                                            bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200
                                                     @endswitch
                                                 ">
                                                     {{ $request->status }}

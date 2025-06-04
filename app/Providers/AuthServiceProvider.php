@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use App\Models\User;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -22,12 +23,18 @@ class AuthServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('view-approvals', function ($user) {
-            return $user->accessRole === 'Approver';
+            // All users can view approvals
+            return true;
         });
 
         Gate::define('manage-approvers', function ($user) {
             // Only department heads can manage approvers
             return $user->position === 'Head' && $user->accessRole === 'Approver';
+        });
+
+        Gate::define('approve-requests', function ($user) {
+            // Only users with Approver role can approve/reject requests
+            return $user->accessRole === 'Approver';
         });
     }
 } 

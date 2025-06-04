@@ -145,25 +145,20 @@
                     @endif
 
                     {{-- Approval Actions --}}
-                    @if(Auth::id() === $formRequest->current_approver_id || 
-                        (Auth::user()->position === 'Head' && 
-                         Auth::user()->department_id === $formRequest->requester->department_id && 
-                         $formRequest->status === 'Pending'))
+                    @if($canTakeAction)
                         <div class="border-b pb-4 mb-4">
                             <h3 class="text-lg font-semibold mb-4">Take Action</h3>
                             <div class="flex space-x-4">
                                 @if($formRequest->form_type === 'IOM')
-                                    @if($formRequest->status === 'Pending' && Auth::user()->position === 'Head')
-                                        {{-- Note Button for department head --}}
+                                    @if($formRequest->status === 'Pending')
+                                        {{-- Note Button for approvers --}}
                                         <button onclick="openActionModal('note')" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
                                             Note
                                         </button>
                                     @endif
 
-                                    @if(($formRequest->status === 'Pending Target Department Approval' || $formRequest->status === 'In Progress') && 
-                                        Auth::user()->position === 'Head' && 
-                                        Auth::user()->department_id === $formRequest->to_department_id)
-                                        {{-- Approve Button for target department head --}}
+                                    @if(in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']))
+                                        {{-- Approve Button for target department approvers --}}
                                         <button onclick="openActionModal('approve')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
                                             Approve
                                         </button>
@@ -175,83 +170,93 @@
                                     </button>
                                 @endif
 
-                                {{-- Reject Button (always available) --}}
+                                {{-- Reject Button (always available for approvers) --}}
                                 <button onclick="openActionModal('reject')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
                                     Reject
                                 </button>
                             </div>
                         </div>
-
-                        {{-- Action Modal --}}
-                        <div id="actionModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
-                            <div class="relative top-20 mx-auto p-5 border w-[600px] shadow-lg rounded-md bg-white dark:bg-gray-800">
-                                <div class="mt-3">
-                                    <h3 id="modalTitle" class="text-lg font-medium text-gray-900 mb-4"></h3>
-                                    <form id="actionForm" method="POST">
-                                        @csrf
-                                        <div class="mb-4">
-                                            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
-                                                Type your full name
-                                            </label>
-                                            <input type="text" 
-                                                id="name" 
-                                                name="name" 
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 uppercase"
-                                                style="text-transform: uppercase;"
-                                                placeholder="Your legal name"
-                                                value="{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}"
-                                                required>
-                                        </div>
-
-                                        {{-- Signature Selection --}}
-                                        <div class="mb-4">
-                                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                                Choose your signature style
-                                            </label>
-                                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                                                <div id="signatureStyles" class="grid grid-cols-2 gap-4">
-                                                    {{-- Signature styles will be loaded here --}}
-                                                </div>
-                                                <div class="mt-3 text-xs text-gray-500 text-center">
-                                                    Select a style and your name will be converted to a signature
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <input type="hidden" id="signature" name="signature">
-                                        <input type="hidden" id="signatureStyle" name="signatureStyle">
-
-                                        {{-- Comments Section --}}
-                                        <div class="mb-4">
-                                            <div class="flex justify-between items-center">
-                                                <label for="comments" class="block text-sm font-medium text-gray-700 mb-1">
-                                                    Comments <span id="commentRequired" class="text-red-500 hidden">*</span>
-                                                </label>
-                                                <span id="commentError" class="text-sm text-red-500 hidden">Comments are required for rejection</span>
-                                            </div>
-                                            <textarea id="comments" 
-                                                name="comments" 
-                                                rows="3" 
-                                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-                                        </div>
-
-                                        {{-- Action Buttons --}}
-                                        <div class="flex justify-end space-x-3 mt-6">
-                                            <button type="button" 
-                                                onclick="closeModal()"
-                                                class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">
-                                                Cancel
-                                            </button>
-                                            <button type="submit" 
-                                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md">
-                                                Submit
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
+                    @else
+                        <div class="bg-gray-100 dark:bg-gray-700 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-gray-600 dark:text-gray-400">
+                                @if(Auth::user()->accessRole === 'Viewer')
+                                    You are viewing this request in read-only mode. Only users with Approver role can take actions on requests.
+                                @else
+                                    You cannot take action on this request at this time. The request may be in a status that doesn't require your action, or it may need action from a different department.
+                                @endif
+                            </p>
                         </div>
                     @endif
+
+                    {{-- Action Modal --}}
+                    <div id="actionModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+                        <div class="relative top-20 mx-auto p-5 border w-[600px] shadow-lg rounded-md bg-white dark:bg-gray-800">
+                            <div class="mt-3">
+                                <h3 id="modalTitle" class="text-lg font-medium text-gray-900 mb-4"></h3>
+                                <form id="actionForm" method="POST">
+                                    @csrf
+                                    <div class="mb-4">
+                                        <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+                                            Type your full name
+                                        </label>
+                                        <input type="text" 
+                                            id="name" 
+                                            name="name" 
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 uppercase"
+                                            style="text-transform: uppercase;"
+                                            placeholder="Your legal name"
+                                            value="{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}"
+                                            required>
+                                    </div>
+
+                                    {{-- Signature Selection --}}
+                                    <div class="mb-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Choose your signature style
+                                        </label>
+                                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                                            <div id="signatureStyles" class="grid grid-cols-2 gap-4">
+                                                {{-- Signature styles will be loaded here --}}
+                                            </div>
+                                            <div class="mt-3 text-xs text-gray-500 text-center">
+                                                Select a style and your name will be converted to a signature
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <input type="hidden" id="signature" name="signature">
+                                    <input type="hidden" id="signatureStyle" name="signatureStyle">
+
+                                    {{-- Comments Section --}}
+                                    <div class="mb-4">
+                                        <div class="flex justify-between items-center">
+                                            <label for="comments" class="block text-sm font-medium text-gray-700 mb-1">
+                                                Comments <span id="commentRequired" class="text-red-500 hidden">*</span>
+                                            </label>
+                                            <span id="commentError" class="text-sm text-red-500 hidden">Comments are required for rejection</span>
+                                        </div>
+                                        <textarea id="comments" 
+                                            name="comments" 
+                                            rows="3" 
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
+                                    </div>
+
+                                    {{-- Action Buttons --}}
+                                    <div class="flex justify-end space-x-3 mt-6">
+                                        <button type="button" 
+                                            onclick="closeModal()"
+                                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md">
+                                            Cancel
+                                        </button>
+                                        <button type="submit" 
+                                            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md">
+                                            Submit
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="mt-6">
                         <a href="{{ route('approvals.index') }}" 

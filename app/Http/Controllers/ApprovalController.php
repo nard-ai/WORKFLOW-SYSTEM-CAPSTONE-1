@@ -12,9 +12,13 @@ use App\Models\User;
 use App\Models\FormApproval;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use App\Models\SignatureStyle;
 
 class ApprovalController extends Controller
 {
+    use AuthorizesRequests;
+
     /**
      * Display a listing of requests awaiting the current user's approval.
      */
@@ -23,62 +27,371 @@ class ApprovalController extends Controller
         $user = Auth::user();
         
         // Base query for requests
-        $baseQuery = FormRequest::with(['requester.department', 'fromDepartment', 'toDepartment', 'iomDetails', 'leaveDetails'])
-            ->where(function($query) use ($user) {
-                // Get requests where user is current approver
-                $query->where('current_approver_id', $user->accnt_id)
-                    ->orWhere(function($q) use ($user) {
-                        // Get requests from user's department that need department head approval
-                        $q->whereNull('current_approver_id')
-                          ->where('status', 'Pending')
-                          ->whereHas('requester', function($q2) use ($user) {
-                              $q2->where('department_id', $user->department_id);
-                          });
-                    });
-            });
+        $query = FormRequest::query()
+            ->with(['requester', 'requester.department', 'approvals']);
 
-        // Apply filters
-        if ($request->filled('type')) {
-            $baseQuery->where('form_type', $request->type);
+        // For all users, show requests based on their department
+        $query->where(function($q) use ($user) {
+            $q->where(function($q1) use ($user) {
+                // Requests from their department that need noting
+                $q1->where('from_department_id', $user->department_id)
+                   ->where('status', 'Pending');
+            })->orWhere(function($q2) use ($user) {
+                // Requests to their department that need approval
+                $q2->where('to_department_id', $user->department_id)
+                   ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+            });
+        });
+
+        // For viewers, show all requests but filter out completed ones
+        if ($user->accessRole === 'Viewer') {
+            $query->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
+        }
+
+        // Apply filters if present
+        if (request('type')) {
+            $query->where('form_type', request('type'));
         }
 
         if ($request->filled('date_range')) {
             $now = Carbon::now();
             switch ($request->date_range) {
                 case 'today':
-                    $baseQuery->whereDate('date_submitted', $now->toDateString());
+                    $query->whereDate('date_submitted', $now->toDateString());
                     break;
                 case 'week':
-                    $baseQuery->whereBetween('date_submitted', [
+                    $query->whereBetween('date_submitted', [
                         $now->startOfWeek()->toDateTimeString(),
                         $now->endOfWeek()->toDateTimeString()
                     ]);
                     break;
                 case 'month':
-                    $baseQuery->whereMonth('date_submitted', $now->month)
-                             ->whereYear('date_submitted', $now->year);
+                    $query->whereMonth('date_submitted', $now->month)
+                         ->whereYear('date_submitted', $now->year);
                     break;
             }
         }
 
         if ($request->filled('priority')) {
-            $baseQuery->where('priority', $request->priority);
+            $query->where('priority', $request->priority);
         }
 
-        // Get pending requests for statistics
-        $pendingRequests = (clone $baseQuery)
-            ->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval', 'Pending Target Department Approval']);
-
+        // Create a base query for all pending requests in the department
+        $pendingRequestsQuery = FormRequest::query()
+            ->where(function($q) use ($user) {
+                $q->where(function($q1) use ($user) {
+                    // From department pending noting
+                    $q1->where('from_department_id', $user->department_id)
+                       ->where('status', 'Pending');
+                })->orWhere(function($q2) use ($user) {
+                    // To department pending approval
+                    $q2->where('to_department_id', $user->department_id)
+                       ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+                });
+            })
+            ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
+        
         // Calculate statistics
+        $pendingCount = $pendingRequestsQuery->count();
+
+        $todayCount = (clone $pendingRequestsQuery)
+            ->whereDate('date_submitted', Carbon::today())
+            ->count();
+
+        $overdueCount = (clone $pendingRequestsQuery)
+            ->where('date_submitted', '<', Carbon::now()->subDays(2))
+            ->count();
+
         $stats = [
-            'pending' => $pendingRequests->count(),
-            'today' => (clone $baseQuery)->whereDate('date_submitted', Carbon::today())->count(),
-            'overdue' => (clone $pendingRequests)->where('date_submitted', '<', Carbon::now()->subDays(2))->count()
+            'pending' => $pendingCount,
+            'today' => $todayCount,
+            'overdue' => $overdueCount,
+            'avgTime' => $this->calculateAverageProcessingTime()
         ];
 
-        // Calculate average processing time
+        // Get the final paginated results - for display we still respect the viewer/approver distinction
+        $requestsToApprove = $query->latest('date_submitted')->paginate(10);
+
+        // Calculate approval rate
+        $totalFinalized = FormRequest::where(function($q) use ($user) {
+                $q->where('from_department_id', $user->department_id)
+                  ->orWhere('to_department_id', $user->department_id);
+            })
+            ->whereIn('status', ['Approved', 'Rejected'])
+            ->count();
+
+        $totalApproved = FormRequest::where(function($q) use ($user) {
+                $q->where('from_department_id', $user->department_id)
+                  ->orWhere('to_department_id', $user->department_id);
+            })
+            ->where('status', 'Approved')
+            ->count();
+
+        $approvalRate = $totalFinalized > 0 
+            ? round(($totalApproved / $totalFinalized) * 100)
+            : 0;
+
+        return view('approvals.index', [
+            'requestsToApprove' => $requestsToApprove,
+            'stats' => $stats,
+            'approvalRate' => $approvalRate,
+            'averageResponseTime' => $stats['avgTime'],
+        ]);
+    }
+
+    /**
+     * Process batch approval/rejection of requests
+     */
+    public function batch(Request $request)
+    {
+        // Validate user is an approver
+        $user = Auth::user();
+        if ($user->accessRole !== 'Approver') {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to perform batch actions.'
+            ], 403);
+        }
+
+        try {
+            $request->validate([
+                'selected_requests' => 'required|array',
+                'selected_requests.*' => 'exists:form_requests,form_id',
+                'action' => 'required|in:approve,reject',
+                'comment' => 'required_if:action,reject|string|nullable',
+                'signature_style_id' => 'required|exists:signature_styles,id',
+                'signature' => 'required|string' // Base64 image data
+            ]);
+
+            // Verify the signature style exists
+            $signatureStyle = SignatureStyle::find($request->signature_style_id);
+            if (!$signatureStyle) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid signature style selected.'
+                ], 403);
+            }
+
+            $action = ucfirst($request->action);
+            $successCount = 0;
+            $errors = [];
+
+            // First validate all requests before processing
+            $requestsToProcess = [];
+            foreach ($request->selected_requests as $formId) {
+                $formRequest = FormRequest::find($formId);
+                
+                if (!$formRequest) {
+                    $errors[] = "Request {$formId} not found.";
+                    continue;
+                }
+
+                // Check if user has permission to act on this request based on status and department
+                $canApprove = $user->canApproveStatus($formRequest->status) && (
+                    ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
+                    (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) && 
+                     $formRequest->to_department_id === $user->department_id)
+                );
+
+                if (!$canApprove) {
+                    $errors[] = "No permission to {$request->action} request {$formId}. Check request status and department permissions.";
+                    continue;
+                }
+
+                $requestsToProcess[] = $formRequest;
+            }
+
+            // If there are any errors, return without processing
+            if (!empty($errors)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Some requests could not be processed.',
+                    'errors' => $errors
+                ], 422);
+            }
+
+            // If no requests to process, return error
+            if (empty($requestsToProcess)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No valid requests to process.'
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            foreach ($requestsToProcess as $formRequest) {
+                // Create approval record with signature
+                FormApproval::create([
+                    'form_id' => $formRequest->form_id,
+                    'approver_id' => $user->accnt_id,
+                    'action' => $action === 'Approve' ? 'Approved' : 'Rejected',
+                    'action_date' => now(),
+                    'comments' => $request->comment,
+                    'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                    'signature_data' => $request->signature
+                ]);
+
+                // Update request status based on current status and action
+                if ($action === 'Approve') {
+                    if ($formRequest->status === 'Pending') {
+                        $formRequest->status = 'In Progress';
+                        // Find target department head
+                        $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
+                            ->where('position', 'Head')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+                        $formRequest->current_approver_id = $targetDepartmentHead ? $targetDepartmentHead->accnt_id : null;
+                    } else {
+                        $formRequest->status = 'Approved';
+                        $formRequest->current_approver_id = null;
+                    }
+                } else {
+                    $formRequest->status = 'Rejected';
+                    $formRequest->current_approver_id = null;
+                }
+
+                $formRequest->save();
+                $successCount++;
+            }
+
+            DB::commit();
+            return response()->json([
+                'success' => true,
+                'message' => "{$successCount} request(s) {$action}d successfully."
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Batch approval error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while processing the requests.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Display the specified resource for approval.
+     */
+    public function show(FormRequest $formRequest): View
+    {
+        $user = Auth::user();
+        
+        // Check if user's department is involved in the request
+        $canView = $user->department_id === $formRequest->from_department_id || 
+                  $user->department_id === $formRequest->to_department_id;
+
+        if (!$canView) {
+            abort(403, 'You are not authorized to view this request.');
+        }
+
+        $formRequest->load(['requester.department', 'fromDepartment', 'toDepartment', 'iomDetails', 'leaveDetails', 'approvals.approver']);
+
+        // Determine if the current user can take action based on their permissions
+        $canTakeAction = $user->canApproveStatus($formRequest->status) && (
+            // For source department
+            ($formRequest->status === 'Pending' && $user->department_id === $formRequest->from_department_id) ||
+            // For target department
+            (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) && 
+             $user->department_id === $formRequest->to_department_id)
+        );
+
+        return view('approvals.show', compact('formRequest', 'canTakeAction'));
+    }
+
+    public function note(Request $request, FormRequest $formRequest): RedirectResponse
+    {
+        $this->authorize('approve-requests');
+        // Comments are optional for noting
+        return $this->processApprovalAction($request, $formRequest, 'Noted');
+    }
+
+    public function approve(Request $request, FormRequest $formRequest): RedirectResponse
+    {
+        $this->authorize('approve-requests');
+        // Comments are optional for approval
+        return $this->processApprovalAction($request, $formRequest, 'Approved');
+    }
+
+    public function reject(Request $request, FormRequest $formRequest): RedirectResponse
+    {
+        $this->authorize('approve-requests');
+        // Validate that comments are provided for rejection
+        $request->validate([
+            'comments' => 'required|string|min:5|max:1000'
+        ], [
+            'comments.required' => 'A reason for rejection is required.',
+            'comments.min' => 'The rejection reason must be at least 5 characters.',
+        ]);
+
+        return $this->processApprovalAction($request, $formRequest, 'Rejected');
+    }
+
+    private function processApprovalAction(Request $request, FormRequest $formRequest, string $action): RedirectResponse
+    {
+        $user = Auth::user();
+        
+        // Verify user has permission to act on this request
+        if (!$user->canApproveStatus($formRequest->status)) {
+            return back()->with('error', 'You do not have permission to approve requests at this stage.');
+        }
+
+        // Verify department matches the current stage
+        $isCorrectDepartment = match ($formRequest->status) {
+            'Pending' => $user->department_id === $formRequest->from_department_id,
+            'In Progress', 'Pending Target Department Approval' => $user->department_id === $formRequest->to_department_id,
+            default => false
+        };
+
+        if (!$isCorrectDepartment) {
+            return back()->with('error', 'This request needs to be processed by a different department at this stage.');
+        }
+
+        // Validate comments if required
+        if ($action === 'Rejected' && empty($request->comments)) {
+            return back()->with('error', 'Comments are required when rejecting a request.');
+        }
+
+        DB::beginTransaction();
+        try {
+            // Create approval record
+            FormApproval::create([
+                'form_id' => $formRequest->form_id,
+                'approver_id' => $user->accnt_id,
+                'action' => $action,
+                'action_date' => now(),
+                'comments' => $request->comments
+            ]);
+
+            // Update request status
+            $formRequest->update([
+                'status' => $action,
+                'current_approver_id' => null
+            ]);
+
+            DB::commit();
+            return redirect()->route('approvals.index')->with('success', "Request has been {$action}.");
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Approval process error: ' . $e->getMessage());
+            return back()->with('error', 'An error occurred while processing the request.');
+        }
+    }
+
+    private function calculateAverageProcessingTime(): string
+    {
+        $user = Auth::user();
+        
         $completedRequests = FormRequest::where(function($query) use ($user) {
-                $query->where('current_approver_id', $user->accnt_id)
+                $query->where('current_approver_id', $user->id)
                     ->orWhere(function($q) use ($user) {
                         $q->whereHas('requester', function($q2) use ($user) {
                             $q2->where('department_id', $user->department_id);
@@ -104,291 +417,8 @@ class ApprovalController extends Controller
             }
         }
 
-        $stats['avgTime'] = $completedCount > 0 
+        return $completedCount > 0 
             ? round($totalProcessingTime / $completedCount) . 'h'
             : 'N/A';
-
-        // Calculate approval rate
-        $totalFinalized = FormRequest::where(function($query) use ($user) {
-                $query->where('current_approver_id', $user->accnt_id)
-                    ->orWhere(function($q) use ($user) {
-                        $q->whereHas('requester', function($q2) use ($user) {
-                            $q2->where('department_id', $user->department_id);
-                        });
-                    });
-            })
-            ->whereIn('status', ['Approved', 'Rejected'])
-            ->count();
-
-        $totalApproved = FormRequest::where(function($query) use ($user) {
-                $query->where('current_approver_id', $user->accnt_id)
-                    ->orWhere(function($q) use ($user) {
-                        $q->whereHas('requester', function($q2) use ($user) {
-                            $q2->where('department_id', $user->department_id);
-                        });
-                    });
-            })
-            ->where('status', 'Approved')
-            ->count();
-
-        $approvalRate = $totalFinalized > 0 
-            ? round(($totalApproved / $totalFinalized) * 100)
-            : 0;
-
-        // Get the final paginated results
-        $requestsToApprove = $baseQuery
-            ->latest('date_submitted')
-            ->paginate(10)
-            ->through(function ($request) {
-                // Calculate wait time
-                $request->wait_time = $request->date_submitted->diffForHumans(['parts' => 1]);
-                $request->is_overdue = $request->date_submitted->diffInDays(now()) > 2;
-                return $request;
-            });
-
-        // Debug information
-        Log::info('Approvals Query Info', [
-            'user_id' => $user->accnt_id,
-            'filters' => $request->only(['type', 'date_range', 'priority']),
-            'total_pending' => $stats['pending'],
-            'filtered_requests' => $requestsToApprove->total(),
-        ]);
-
-        return view('approvals.index', [
-            'requestsToApprove' => $requestsToApprove,
-            'stats' => $stats,
-            'approvalRate' => $approvalRate,
-            'averageResponseTime' => $stats['avgTime'],
-        ]);
-    }
-
-    /**
-     * Process batch approval/rejection of requests
-     */
-    public function batchAction(Request $request): RedirectResponse
-    {
-        $request->validate([
-            'selected_requests' => 'required|array',
-            'selected_requests.*' => 'exists:form_requests,form_id',
-            'action' => 'required|in:approve,reject',
-            'comment' => 'nullable|string'
-        ]);
-
-        $user = Auth::user();
-        $action = ucfirst($request->action) . 'd'; // 'Approved' or 'Rejected'
-        $successCount = 0;
-        $errorCount = 0;
-
-        DB::beginTransaction();
-        try {
-            foreach ($request->selected_requests as $formId) {
-                $formRequest = FormRequest::find($formId);
-                
-                // Verify user has permission to act on this request
-                if ($formRequest->current_approver_id !== $user->accnt_id &&
-                    !($user->position === 'Head' && 
-                      $user->department_id === $formRequest->requester->department_id && 
-                      $formRequest->status === 'Pending')) {
-                    $errorCount++;
-                    continue;
-                }
-
-                // Create approval record
-                FormApproval::create([
-                    'form_id' => $formId,
-                    'approver_id' => $user->accnt_id,
-                    'action' => $action,
-                    'action_date' => now(),
-                    'comments' => $request->comment
-                ]);
-
-                // Update request status
-                $formRequest->update([
-                    'status' => $action,
-                    'current_approver_id' => null
-                ]);
-
-                $successCount++;
-            }
-
-            DB::commit();
-
-            $message = "Successfully {$request->action}d {$successCount} requests.";
-            if ($errorCount > 0) {
-                $message .= " {$errorCount} requests could not be processed due to permissions.";
-            }
-
-            return redirect()->route('approvals.index')->with('success', $message);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Batch approval error: ' . $e->getMessage());
-            return redirect()->route('approvals.index')->with('error', 'An error occurred while processing the batch action.');
-        }
-    }
-
-    /**
-     * Display the specified resource for approval.
-     */
-    public function show(FormRequest $formRequest): View
-    {
-        $user = Auth::user();
-        
-        // Allow access if:
-        // 1. User is the current_approver_id OR
-        // 2. User is department head and request is from their department pending head approval
-        $canAccess = $user->accnt_id === $formRequest->current_approver_id ||
-                    ($user->position === 'Head' && 
-                     $user->department_id === $formRequest->requester->department_id && 
-                     ($formRequest->status === 'Pending' || $formRequest->status === 'Pending Department Head Approval'));
-
-        if (!$canAccess && !in_array($formRequest->status, ['Approved', 'Rejected', 'Cancelled', 'Noted'])) {
-            abort(403, 'This request is not currently assigned to you or is in a non-actionable state for you.');
-        }
-
-        $formRequest->load(['requester.department', 'fromDepartment', 'toDepartment', 'iomDetails', 'leaveDetails', 'approvals.approver']);
-
-        return view('approvals.show', compact('formRequest'));
-    }
-
-    public function note(Request $request, FormRequest $formRequest): RedirectResponse
-    {
-        // Comments are optional for noting
-        return $this->processApprovalAction($request, $formRequest, 'Noted');
-    }
-
-    public function approve(Request $request, FormRequest $formRequest): RedirectResponse
-    {
-        // Comments are optional for approval
-        return $this->processApprovalAction($request, $formRequest, 'Approved');
-    }
-
-    public function reject(Request $request, FormRequest $formRequest): RedirectResponse
-    {
-        // Validate that comments are provided for rejection
-        $request->validate([
-            'comments' => 'required|string|min:5|max:1000'
-        ], [
-            'comments.required' => 'A reason for rejection is required.',
-            'comments.min' => 'The rejection reason must be at least 5 characters.',
-        ]);
-
-        return $this->processApprovalAction($request, $formRequest, 'Rejected');
-    }
-
-    private function processApprovalAction(Request $request, FormRequest $formRequest, string $action): RedirectResponse
-    {
-        try {
-            $user = Auth::user();
-            
-            // Check if user can access this request
-            $canAccess = $user->accnt_id === $formRequest->current_approver_id ||
-                        ($user->position === 'Head' && 
-                         $user->department_id === $formRequest->requester->department_id && 
-                         $formRequest->status === 'Pending');
-
-            if (!$canAccess) {
-                return redirect()->back()->with('error', 'You are not authorized to perform this action.');
-            }
-
-            // Validate signature data
-            $request->validate([
-                'name' => 'required|string|max:255',
-                'signature' => 'required|string',
-                'comments' => $action === 'Rejected' ? 'required|string|min:5|max:1000' : 'nullable|string|max:1000'
-            ], [
-                'name.required' => 'Please provide your full name for the signature.',
-                'signature.required' => 'Digital signature is required.',
-                'comments.required' => 'A reason for rejection is required.',
-                'comments.min' => 'The rejection reason must be at least 5 characters.'
-            ]);
-
-            DB::beginTransaction();
-
-            // Create approval record with signature
-            FormApproval::create([
-                'form_id' => $formRequest->form_id,
-                'approver_id' => $user->accnt_id,
-                'action' => $action,
-                'comments' => $request->input('comments'),
-                'action_date' => now(),
-                'signature_name' => $request->input('name'),
-                'signature_data' => $request->input('signature')
-            ]);
-
-            // Handle different actions
-            switch ($action) {
-                case 'Rejected':
-                    $formRequest->status = 'Rejected';
-                    $formRequest->current_approver_id = null;
-                    break;
-
-                case 'Noted':
-                    if ($formRequest->form_type === 'IOM') {
-                        // After department head notes, send to target department head
-                        $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                                                ->where('position', 'Head')
-                                                ->where('accessRole', 'Approver')
-                                                ->first();
-
-                        if (!$targetDepartmentHead) {
-                            DB::rollBack();
-                            return redirect()->back()->with('error', 'Target department head not found. Cannot proceed with noting.');
-                        }
-
-                        $formRequest->status = 'In Progress';
-                        $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
-                    }
-                    break;
-
-                case 'Approved':
-                    if ($formRequest->form_type === 'IOM') {
-                        if ($formRequest->status === 'In Progress' &&
-                            $user->department_id === $formRequest->to_department_id && 
-                            $user->position === 'Head') {
-                            $formRequest->status = 'Approved';
-                            $formRequest->current_approver_id = null;
-                            Log::info('IOM request approved by target department head');
-                        } else {
-                            Log::warning('Invalid approval attempt for IOM', [
-                                'status' => $formRequest->status,
-                                'user_dept' => $user->department_id,
-                                'target_dept' => $formRequest->to_department_id,
-                                'user_position' => $user->position
-                            ]);
-                            DB::rollBack();
-                            return redirect()->back()->with('error', 'Only the target department head can approve this request at this stage.');
-                        }
-                    } else {
-                        // For non-IOM requests
-                        $formRequest->status = 'Approved';
-                        $formRequest->current_approver_id = null;
-                    }
-                    break;
-            }
-
-            $formRequest->save();
-            DB::commit();
-
-            $actionMessage = match($action) {
-                'Approved' => 'approved',
-                'Rejected' => 'rejected',
-                'Noted' => 'noted',
-                default => 'processed'
-            };
-
-            return redirect()->route('approvals.index')
-                ->with('success', "Request {$formRequest->form_id} has been {$actionMessage}.");
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Approval action failed: ' . $e->getMessage(), [
-                'action' => $action,
-                'form_id' => $formRequest->form_id,
-                'user_id' => Auth::id(),
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return redirect()->back()->with('error', 'An error occurred while processing the approval. Please try again.');
-        }
     }
 }

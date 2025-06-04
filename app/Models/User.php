@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
@@ -88,6 +89,43 @@ class User extends Authenticatable
     public function employeeInfo(): BelongsTo
     {
         return $this->belongsTo(EmployeeInfo::class, 'Emp_No', 'Emp_No');
+    }
+
+    /**
+     * Get the approver permissions for the user.
+     */
+    public function approverPermissions(): HasOne
+    {
+        return $this->hasOne(ApproverPermission::class, 'accnt_id', 'accnt_id');
+    }
+
+    /**
+     * Check if the user can approve requests with a specific status.
+     */
+    public function canApproveStatus(string $status): bool
+    {
+        // Department heads can approve all statuses
+        if ($this->position === 'Head') {
+            return true;
+        }
+
+        // Non-approvers can't approve anything
+        if ($this->accessRole !== 'Approver') {
+            return false;
+        }
+
+        // Get the user's permissions
+        $permissions = $this->approverPermissions;
+        if (!$permissions) {
+            return false;
+        }
+
+        // Check permissions based on status
+        return match ($status) {
+            'Pending' => $permissions->can_approve_pending,
+            'In Progress', 'Pending Target Department Approval' => $permissions->can_approve_in_progress,
+            default => false,
+        };
     }
 
     // Define relationships if needed, for example:
