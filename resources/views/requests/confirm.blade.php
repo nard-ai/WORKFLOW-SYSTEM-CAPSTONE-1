@@ -50,10 +50,15 @@
                                 <div>
                                     <strong class="block text-sm font-medium text-gray-700 dark:text-gray-300">Purpose:</strong>
                                     <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                                        {{ $formData['iom_purpose'] ?? 'N/A' }}
-                                        @if($formData['iom_purpose'] === 'Request' && !empty($formData['iom_specific_request_type']))
-                                            - {{ $formData['iom_specific_request_type'] }}
-                                        @endif
+                                        @php
+                                            $purpose = $formData['iom_purpose'] ?? 'N/A';
+                                            if ($purpose === 'Request' && !empty($formData['iom_specific_request_type'])) {
+                                                $purpose .= ' - ' . $formData['iom_specific_request_type'];
+                                            } elseif ($purpose === 'Others' && !empty($formData['iom_other_purpose'])) {
+                                                $purpose .= ': ' . $formData['iom_other_purpose'];
+                                            }
+                                        @endphp
+                                        {{ $purpose }}
                                     </p>
                                 </div>
                                 @if(!empty($formData['iom_date_needed']))

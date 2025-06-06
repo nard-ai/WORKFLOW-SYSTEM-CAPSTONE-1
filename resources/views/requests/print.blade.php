@@ -34,6 +34,7 @@
             margin: 0 auto;
             padding: 10px;
             font-size: 11px;
+            color: black;
         }
         .slip-container {
             border: 1px solid #000;
@@ -55,17 +56,18 @@
             text-align: center;
         }
         .header-right {
-            width: 60px; /* Reserve space for future logo */
+            width: 60px;
         }
         .header h1 {
             font-size: 14px;
             margin: 0 0 5px 0;
             font-weight: bold;
+            color: black;
         }
         .header p {
             font-size: 10px;
             margin: 0;
-            color: #666;
+            color: black;
         }
         .details-grid {
             display: grid;
@@ -81,13 +83,15 @@
         .field-label {
             font-weight: 600;
             min-width: 100px;
+            color: black;
         }
         .field-value {
             flex: 1;
+            color: black;
         }
         .approval-section {
             margin-top: 15px;
-            border-top: 1px solid #ccc;
+            border-top: 1px solid #000;
             padding-top: 10px;
         }
         .approval-grid {
@@ -98,24 +102,36 @@
         .approval-box {
             text-align: center;
             padding: 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .signature-container {
+            min-height: 30px;
+            margin-bottom: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .signature-text {
             font-family: 'Dancing Script', cursive;
             font-size: 14px;
-            margin-bottom: 3px;
-            min-height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            color: black;
+            text-transform: uppercase;
+        }
+        .signature-image {
+            height: 30px;
+            object-fit: contain;
         }
         .approval-name {
             font-weight: 600;
             font-size: 11px;
             margin-bottom: 2px;
+            color: black;
         }
         .approval-info {
             font-size: 10px;
-            color: #666;
+            color: black;
             line-height: 1.2;
         }
         .approval-status {
@@ -124,14 +140,8 @@
             border-radius: 10px;
             font-size: 10px;
             margin-top: 3px;
-        }
-        .status-approved {
-            background-color: #dcfce7;
-            color: #166534;
-        }
-        .status-noted {
-            background-color: #dbeafe;
-            color: #1e40af;
+            border: 1px solid black;
+            color: black;
         }
     </style>
 </head>
@@ -148,7 +158,7 @@
         <div class="header">
             <img src="{{ asset('images/lyceum-logo.png') }}" alt="Lyceum Logo" class="logo">
             <div class="header-content">
-                <h1>INTER-OFFICE MEMORANDUM #{{ $formRequest->form_id }}</h1>
+                <h1>{{ $formRequest->form_type === 'IOM' ? 'INTER-OFFICE MEMORANDUM' : 'LEAVE REQUEST FORM' }} #{{ $formRequest->form_id }}</h1>
                 <p>Generated on {{ now()->format('F j, Y g:i A') }}</p>
             </div>
             <div class="header-right"></div>
@@ -156,6 +166,7 @@
 
         <!-- Request Details -->
         <div class="details-grid">
+            @if($formRequest->form_type === 'IOM')
             <div class="field">
                 <div class="field-label">From:</div>
                 <div class="field-value">{{ $formRequest->fromDepartment->dept_name }}</div>
@@ -194,6 +205,45 @@
                 <div class="field-value">{{ $formRequest->iomDetails->body }}</div>
             </div>
             @endif
+            @else
+            <!-- Leave Request Details -->
+            <div class="field">
+                <div class="field-label">Employee:</div>
+                <div class="field-value">{{ $formRequest->requester->employeeInfo->FirstName }} {{ $formRequest->requester->employeeInfo->LastName }}</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Employee No:</div>
+                <div class="field-value">{{ $formRequest->requester->username }}</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Department:</div>
+                <div class="field-value">{{ $formRequest->fromDepartment->dept_name }}</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Date Filed:</div>
+                <div class="field-value">{{ $formRequest->date_submitted->format('F j, Y') }}</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Leave Type:</div>
+                <div class="field-value">{{ ucfirst($formRequest->leaveDetails->leave_type) }} Leave</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Duration:</div>
+                <div class="field-value">{{ $formRequest->leaveDetails->days }} day(s)</div>
+            </div>
+            <div class="field">
+                <div class="field-label">Start Date:</div>
+                <div class="field-value">{{ $formRequest->leaveDetails->start_date->format('F j, Y') }}</div>
+            </div>
+            <div class="field">
+                <div class="field-label">End Date:</div>
+                <div class="field-value">{{ $formRequest->leaveDetails->end_date->format('F j, Y') }}</div>
+            </div>
+            <div class="field" style="grid-column: span 2;">
+                <div class="field-label">Reason:</div>
+                <div class="field-value">{{ $formRequest->leaveDetails->description }}</div>
+            </div>
+            @endif
         </div>
 
         <!-- Approval Section -->
@@ -202,13 +252,15 @@
                 @foreach($formRequest->approvals->sortBy('action_date') as $approval)
                     @if($approval->action !== 'Submitted')
                         <div class="approval-box">
-                            @if($approval->signature_data)
-                                <img src="{{ $approval->signature_data }}" alt="Digital Signature" style="height: 30px; margin-bottom: 3px;">
-                            @else
-                                <div class="signature-text">
-                                    {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
-                                </div>
-                            @endif
+                            <div class="signature-container">
+                                @if($approval->signature_data)
+                                    <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="signature-image">
+                                @else
+                                    <div class="signature-text">
+                                        {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                    </div>
+                                @endif
+                            </div>
                             <div class="approval-name">
                                 {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
                             </div>
@@ -216,7 +268,7 @@
                                 {{ $approval->approver->position }}<br>
                                 {{ $approval->approver->department->dept_name }}
                             </div>
-                            <div class="approval-status {{ $approval->action === 'Approved' ? 'status-approved' : 'status-noted' }}">
+                            <div class="approval-status">
                                 {{ $approval->action }}
                             </div>
                         </div>

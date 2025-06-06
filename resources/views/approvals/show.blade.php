@@ -36,12 +36,13 @@
 
                                 {{-- Approval history --}}
                                 @foreach ($formRequest->approvals->sortBy('action_date') as $approval)
-                                    @if($approval->action !== 'Submitted' && $approval->action !== 'Approved')
+                                    @if($approval->action !== 'Submitted')
                                         <li class="flex items-start">
                                             <div class="flex items-center justify-center">
                                                 <div class="
                                                     @if($approval->action === 'Rejected') bg-red-500
                                                     @elseif($approval->action === 'Noted') bg-blue-500
+                                                    @elseif($approval->action === 'Approved') bg-green-500
                                                     @else bg-gray-500
                                                     @endif
                                                     rounded-full w-8 h-8 flex items-center justify-center ring-4 ring-white dark:ring-gray-800
@@ -50,16 +51,17 @@
                                                         <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                                                         </svg>
-                                                    @elseif($approval->action === 'Noted')
+                                                    @elseif($approval->action === 'Noted' || $approval->action === 'Approved')
                                                         <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                                         </svg>
                                                     @endif
                                                 </div>
                                             </div>
                                             <div class="ml-6">
                                                 <div class="font-semibold text-gray-900 dark:text-gray-100">
-                                                    {{ $approval->action }}
+                                                    {{ $approval->action }} by {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                                    <span class="text-sm font-normal text-gray-500 dark:text-gray-400">({{ $approval->approver->position }})</span>
                                                 </div>
                                                 @if($approval->comments)
                                                     <div class="mt-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600">
@@ -104,8 +106,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
                             <p><strong>Request ID:</strong> {{ $formRequest->form_id }}</p>
                             <p><strong>Type:</strong> {{ $formRequest->form_type }}</p>
-                            <p><strong>Requester:</strong> {{ $formRequest->requester->username ?? 'N/A' }}</p>
-                            <p><strong>Requester's Dept:</strong> {{ $formRequest->requester->department->dept_name ?? 'N/A' }} ({{ $formRequest->requester->department->dept_code ?? 'N/A' }})</p>
+                            <p><strong>Requester:</strong> {{ $formRequest->requester->employeeInfo->FirstName }} {{ $formRequest->requester->employeeInfo->LastName }}</p>
+                            <p><strong>Requester's Department:</strong> {{ $formRequest->requester->department->dept_name ?? 'N/A' }} ({{ $formRequest->requester->department->dept_code ?? 'N/A' }})</p>
                             <p><strong>Date Submitted:</strong> {{ $formRequest->date_submitted->format('Y-m-d H:i A') }}</p>
                             <p><strong>Current Status:</strong> <span class="font-semibold">{{ $formRequest->status }}</span></p>
                         </div>
@@ -127,6 +129,38 @@
                                 </div>
                             </div>
                         </div>
+
+                        {{-- Department Head Signature Section --}}
+                        @php
+                            $deptHeadApproval = $formRequest->approvals
+                                ->where('action', 'Noted')
+                                ->first();
+                        @endphp
+                        @if($deptHeadApproval)
+                            <div class="border-b pb-4 mb-4">
+                                <h3 class="text-lg font-semibold mb-4">Department Head Approval</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
+                                        @if($deptHeadApproval->signature_data)
+                                            <img src="{{ $deptHeadApproval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
+                                        @else
+                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">
+                                                {{ strtoupper($deptHeadApproval->approver->employeeInfo->FirstName . ' ' . $deptHeadApproval->approver->employeeInfo->LastName) }}
+                                            </div>
+                                        @endif
+                                        <div class="text-center">
+                                            <p class="font-medium">{{ $deptHeadApproval->approver->employeeInfo->FirstName }} {{ $deptHeadApproval->approver->employeeInfo->LastName }}</p>
+                                            <p class="text-sm text-gray-600">
+                                                <span class="px-2 py-1 rounded bg-blue-100 text-blue-800">
+                                                    {{ $deptHeadApproval->action }}
+                                                </span>
+                                            </p>
+                                            <p class="text-sm text-gray-500 mt-1">{{ $deptHeadApproval->action_date->format('M j, Y') }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     @endif
 
                     {{-- Leave Specific Details --}}
@@ -135,13 +169,47 @@
                             <h3 class="text-lg font-semibold">Leave Details</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
                                 <p><strong>Leave Type:</strong> {{ ucfirst($formRequest->leaveDetails->leave_type ?? 'N/A') }}</p>
-                                <p><strong>Date of Leave:</strong> {{ $formRequest->leaveDetails->date_of_leave ? \Carbon\Carbon::parse($formRequest->leaveDetails->date_of_leave)->format('Y-m-d') : 'N/A' }}</p>
+                                <p><strong>Duration:</strong> {{ $formRequest->leaveDetails->days }} day(s)</p>
+                                <p><strong>Start Date:</strong> {{ $formRequest->leaveDetails->start_date ? $formRequest->leaveDetails->start_date->format('F j, Y') : 'N/A' }}</p>
+                                <p><strong>End Date:</strong> {{ $formRequest->leaveDetails->end_date ? $formRequest->leaveDetails->end_date->format('F j, Y') : 'N/A' }}</p>
                                 <div class="md:col-span-2">
-                                    <p class="font-semibold">Reason:</p>
+                                    <p class="font-semibold">Description / Reason:</p>
                                     <div class="mt-1 p-3 bg-gray-50 dark:bg-gray-700 rounded-md whitespace-pre-wrap">{{ $formRequest->leaveDetails->description ?? 'N/A' }}</div>
                                 </div>
                             </div>
                         </div>
+
+                        {{-- Department Head Signature Section --}}
+                        @php
+                            $deptHeadApproval = $formRequest->approvals
+                                ->where('action', 'Noted')
+                                ->first();
+                        @endphp
+                        @if($deptHeadApproval)
+                            <div class="border-b pb-4 mb-4">
+                                <h3 class="text-lg font-semibold mb-4">Department Head Approval</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
+                                        @if($deptHeadApproval->signature_data)
+                                            <img src="{{ $deptHeadApproval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
+                                        @else
+                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">
+                                                {{ strtoupper($deptHeadApproval->approver->employeeInfo->FirstName . ' ' . $deptHeadApproval->approver->employeeInfo->LastName) }}
+                                            </div>
+                                        @endif
+                                        <div class="text-center">
+                                            <p class="font-medium">{{ $deptHeadApproval->approver->employeeInfo->FirstName }} {{ $deptHeadApproval->approver->employeeInfo->LastName }}</p>
+                                            <p class="text-sm text-gray-600">
+                                                <span class="px-2 py-1 rounded bg-blue-100 text-blue-800">
+                                                    {{ $deptHeadApproval->action }}
+                                                </span>
+                                            </p>
+                                            <p class="text-sm text-gray-500 mt-1">{{ $deptHeadApproval->action_date->format('M j, Y') }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     @endif
 
                     {{-- Approval Actions --}}
@@ -164,10 +232,18 @@
                                         </button>
                                     @endif
                                 @else
-                                    {{-- For non-IOM requests --}}
-                                    <button onclick="openActionModal('approve')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
-                                        Approve
-                                    </button>
+                                    {{-- For Leave requests --}}
+                                    @if($formRequest->status === 'Pending')
+                                        {{-- Note Button for department heads --}}
+                                        <button onclick="openActionModal('note')" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                                            Note
+                                        </button>
+                                    @else
+                                        {{-- Approve Button for HR --}}
+                                        <button onclick="openActionModal('approve')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+                                            Approve
+                                        </button>
+                                    @endif
                                 @endif
 
                                 {{-- Reject Button (always available for approvers) --}}

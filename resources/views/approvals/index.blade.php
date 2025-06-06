@@ -451,12 +451,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateBatchButtonsState() {
-        if (!batchApproveBtn || !batchRejectBtn) return;
         const hasSelection = Array.from(requestCheckboxes).some(checkbox => checkbox.checked);
-        batchApproveBtn.disabled = !hasSelection;
-        batchRejectBtn.disabled = !hasSelection;
-        batchApproveBtn.classList.toggle('opacity-50', !hasSelection);
-        batchRejectBtn.classList.toggle('opacity-50', !hasSelection);
+        
+        if (batchApproveBtn) {
+            batchApproveBtn.disabled = !hasSelection;
+            batchApproveBtn.classList.toggle('opacity-50', !hasSelection);
+        }
+        
+        if (batchRejectBtn) {
+            batchRejectBtn.disabled = !hasSelection;
+            batchRejectBtn.classList.toggle('opacity-50', !hasSelection);
+        }
     }
 
     if (batchApproveBtn) {
@@ -465,6 +470,40 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (batchRejectBtn) {
         batchRejectBtn.addEventListener('click', () => openBatchModal('reject'));
+    }
+
+    window.openBatchModal = function(action) {
+        // Validate permissions first
+        const validationResult = validateRequestSelection();
+        if (!validationResult.valid) {
+            alert(validationResult.message);
+            return;
+        }
+
+        currentAction = action;
+        document.getElementById('batchAction').value = action;
+        const selectedCount = document.querySelectorAll('.request-checkbox:checked').length;
+        const modalTitle = document.getElementById('modalTitle');
+        
+        const actionText = {
+            'approve': 'approve',
+            'reject': 'reject'
+        }[action];
+        
+        modalTitle.textContent = `Are you sure you want to ${actionText} ${selectedCount} selected request${selectedCount > 1 ? 's' : ''}?`;
+        
+        // Reset form state
+        commentRequired.classList.toggle('hidden', action !== 'reject');
+        batchComment.value = '';
+        commentError.classList.add('hidden');
+        signatureError.classList.add('hidden');
+        selectedSignatureId = null;
+        selectedFontFamily = null;
+        
+        // Load signature styles
+        loadSignatureStyles();
+        
+        batchActionModal.classList.remove('hidden');
     }
 
     // Load signature styles
@@ -551,35 +590,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         return { valid: true, message: '' };
-    }
-
-    window.openBatchModal = function(action) {
-        // Validate permissions first
-        const validationResult = validateRequestSelection();
-        if (!validationResult.valid) {
-            alert(validationResult.message);
-            return;
-        }
-
-        currentAction = action;
-        document.getElementById('batchAction').value = action;
-        const selectedCount = document.querySelectorAll('.request-checkbox:checked').length;
-        const modalTitle = document.getElementById('modalTitle');
-        
-        modalTitle.textContent = `Are you sure you want to ${action} ${selectedCount} selected request${selectedCount > 1 ? 's' : ''}?`;
-        
-        // Reset form state
-        commentRequired.classList.toggle('hidden', action !== 'reject');
-        batchComment.value = '';
-        commentError.classList.add('hidden');
-        signatureError.classList.add('hidden');
-        selectedSignatureId = null;
-        selectedFontFamily = null;
-        
-        // Load signature styles
-        loadSignatureStyles();
-        
-        batchActionModal.classList.remove('hidden');
     }
 });
 </script> 

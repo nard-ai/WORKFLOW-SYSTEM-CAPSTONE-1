@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use App\Models\SignatureStyle;
+use App\Models\Department;
 
 class ApprovalController extends Controller
 {
@@ -39,7 +40,15 @@ class ApprovalController extends Controller
             })->orWhere(function($q2) use ($user) {
                 // Requests to their department that need approval
                 $q2->where('to_department_id', $user->department_id)
-                   ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+                   ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                // Add condition for HR to see leave requests in progress
+                ->orWhere(function($q3) use ($user) {
+                    $q3->where('form_type', 'Leave')
+                       ->where('status', 'In Progress')
+                       ->whereHas('currentApprover', function($q4) use ($user) {
+                           $q4->where('accnt_id', $user->accnt_id);
+                       });
+                });
             });
         });
 
@@ -160,17 +169,8 @@ class ApprovalController extends Controller
                 'action' => 'required|in:approve,reject',
                 'comment' => 'required_if:action,reject|string|nullable',
                 'signature_style_id' => 'required|exists:signature_styles,id',
-                'signature' => 'required|string' // Base64 image data
+                'signature' => 'required|string'
             ]);
-
-            // Verify the signature style exists
-            $signatureStyle = SignatureStyle::find($request->signature_style_id);
-            if (!$signatureStyle) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid signature style selected.'
-                ], 403);
-            }
 
             $action = ucfirst($request->action);
             $successCount = 0;
@@ -201,7 +201,6 @@ class ApprovalController extends Controller
                 $requestsToProcess[] = $formRequest;
             }
 
-            // If there are any errors, return without processing
             if (!empty($errors)) {
                 return response()->json([
                     'success' => false,
@@ -210,7 +209,6 @@ class ApprovalController extends Controller
                 ], 422);
             }
 
-            // If no requests to process, return error
             if (empty($requestsToProcess)) {
                 return response()->json([
                     'success' => false,
@@ -221,32 +219,66 @@ class ApprovalController extends Controller
             DB::beginTransaction();
 
             foreach ($requestsToProcess as $formRequest) {
-                // Create approval record with signature
-                FormApproval::create([
-                    'form_id' => $formRequest->form_id,
-                    'approver_id' => $user->accnt_id,
-                    'action' => $action === 'Approve' ? 'Approved' : 'Rejected',
-                    'action_date' => now(),
-                    'comments' => $request->comment,
-                    'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
-                    'signature_data' => $request->signature
-                ]);
-
-                // Update request status based on current status and action
                 if ($action === 'Approve') {
+                    // Create approval record
+                    FormApproval::create([
+                        'form_id' => $formRequest->form_id,
+                        'approver_id' => $user->accnt_id,
+                        'action' => $formRequest->status === 'Pending' ? 'Noted' : 'Approved',
+                        'action_date' => now(),
+                        'comments' => $request->comment,
+                        'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                        'signature_data' => $request->signature
+                    ]);
+
+                    // Update request status
                     if ($formRequest->status === 'Pending') {
                         $formRequest->status = 'In Progress';
-                        // Find target department head
-                        $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                            ->where('position', 'Head')
-                            ->where('accessRole', 'Approver')
-                            ->first();
-                        $formRequest->current_approver_id = $targetDepartmentHead ? $targetDepartmentHead->accnt_id : null;
+                        
+                        // For leave requests, route to HR
+                        if ($formRequest->form_type === 'Leave') {
+                            $hrDepartment = Department::where('dept_code', 'HR')
+                                ->orWhere('dept_code', 'HRD')
+                                ->orWhere('dept_code', 'HRMD')
+                                ->orWhere('dept_name', 'like', '%Human Resource%')
+                                ->first();
+                            
+                            if ($hrDepartment) {
+                                $hrApprover = User::where('department_id', $hrDepartment->department_id)
+                                    ->where('position', 'Head')
+                                    ->where('accessRole', 'Approver')
+                                    ->first();
+                                
+                                if ($hrApprover) {
+                                    $formRequest->current_approver_id = $hrApprover->accnt_id;
+                                    $formRequest->to_department_id = $hrDepartment->department_id;
+                                }
+                            }
+                        } else {
+                            // For IOM requests, route to target department head
+                            $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
+                                ->where('position', 'Head')
+                                ->where('accessRole', 'Approver')
+                                ->first();
+                            $formRequest->current_approver_id = $targetDepartmentHead ? $targetDepartmentHead->accnt_id : null;
+                        }
                     } else {
+                        // For In Progress requests, mark as Approved
                         $formRequest->status = 'Approved';
                         $formRequest->current_approver_id = null;
                     }
                 } else {
+                    // Handle rejection
+                    FormApproval::create([
+                        'form_id' => $formRequest->form_id,
+                        'approver_id' => $user->accnt_id,
+                        'action' => 'Rejected',
+                        'action_date' => now(),
+                        'comments' => $request->comment,
+                        'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                        'signature_data' => $request->signature
+                    ]);
+
                     $formRequest->status = 'Rejected';
                     $formRequest->current_approver_id = null;
                 }
@@ -256,17 +288,12 @@ class ApprovalController extends Controller
             }
 
             DB::commit();
+
             return response()->json([
                 'success' => true,
-                'message' => "{$successCount} request(s) {$action}d successfully."
+                'message' => "{$successCount} request(s) processed successfully."
             ]);
 
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $e->errors()
-            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Batch approval error: ' . $e->getMessage());
@@ -339,50 +366,130 @@ class ApprovalController extends Controller
     {
         $user = Auth::user();
         
-        // Verify user has permission to act on this request
-        if (!$user->canApproveStatus($formRequest->status)) {
-            return back()->with('error', 'You do not have permission to approve requests at this stage.');
-        }
-
-        // Verify department matches the current stage
-        $isCorrectDepartment = match ($formRequest->status) {
-            'Pending' => $user->department_id === $formRequest->from_department_id,
-            'In Progress', 'Pending Target Department Approval' => $user->department_id === $formRequest->to_department_id,
-            default => false
-        };
-
-        if (!$isCorrectDepartment) {
-            return back()->with('error', 'This request needs to be processed by a different department at this stage.');
-        }
-
-        // Validate comments if required
-        if ($action === 'Rejected' && empty($request->comments)) {
-            return back()->with('error', 'Comments are required when rejecting a request.');
-        }
-
-        DB::beginTransaction();
         try {
+            // Verify user has permission to act on this request
+            if (!$user->canApproveStatus($formRequest->status)) {
+                return back()->with('error', 'You do not have permission to approve requests at this stage.');
+            }
+
+            // Verify department matches the current stage
+            $isCorrectDepartment = match ($formRequest->status) {
+                'Pending' => $user->department_id === $formRequest->from_department_id,
+                'In Progress', 'Pending Target Department Approval' => 
+                    $user->department_id === $formRequest->to_department_id || 
+                    ($formRequest->form_type === 'Leave' && $user->accnt_id === $formRequest->current_approver_id),
+                default => false
+            };
+
+            if (!$isCorrectDepartment) {
+                return back()->with('error', 'This request needs to be processed by a different department at this stage.');
+            }
+
+            // Validate comments if required
+            if ($action === 'Rejected' && empty($request->comments)) {
+                return back()->with('error', 'Comments are required when rejecting a request.');
+            }
+
+            DB::beginTransaction();
+
             // Create approval record
             FormApproval::create([
                 'form_id' => $formRequest->form_id,
                 'approver_id' => $user->accnt_id,
                 'action' => $action,
                 'action_date' => now(),
-                'comments' => $request->comments
+                'comments' => $request->comments,
+                'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                'signature_data' => $action === 'Approved' ? ($request->signature ?? null) : null // Only include signature for final approval
             ]);
 
-            // Update request status
-            $formRequest->update([
-                'status' => $action,
-                'current_approver_id' => null
-            ]);
+            // Determine the new status based on current status and action
+            $newStatus = match ($action) {
+                'Noted' => 'In Progress',
+                'Approved' => 'Approved',
+                'Rejected' => 'Rejected',
+                default => $formRequest->status
+            };
+
+            // Find next approver based on request type and current status
+            $targetApproverId = null;
+            if ($newStatus === 'In Progress') {
+                if ($formRequest->form_type === 'Leave') {
+                    // For leave requests, after department head notes, route to HR
+                    // Try different possible HR department codes
+                    $hrDepartment = Department::where('dept_code', 'HR')
+                        ->orWhere('dept_code', 'HRD')
+                        ->orWhere('dept_code', 'HRMD')
+                        ->orWhere('dept_name', 'like', '%Human Resource%')
+                        ->first();
+                    
+                    if (!$hrDepartment) {
+                        DB::rollBack();
+                        Log::error('HR Department not found in the system.');
+                        return back()->with('error', 'HR Department not found. Please contact your administrator.');
+                    }
+
+                    $hrApprover = User::where('department_id', $hrDepartment->department_id)
+                        ->where('position', 'Head')
+                        ->where('accessRole', 'Approver')
+                        ->first();
+                    
+                    if (!$hrApprover) {
+                        DB::rollBack();
+                        Log::error('HR Department Head not found.', [
+                            'hr_department_id' => $hrDepartment->department_id,
+                            'hr_department_code' => $hrDepartment->dept_code,
+                            'hr_department_name' => $hrDepartment->dept_name
+                        ]);
+                        return back()->with('error', 'HR Department Head not found. Please contact your administrator.');
+                    }
+
+                    $targetApproverId = $hrApprover->accnt_id;
+                    
+                    // Set the to_department_id to HR for proper routing
+                    $formRequest->to_department_id = $hrDepartment->department_id;
+                    
+                    Log::info('Leave request routed to HR', [
+                        'form_id' => $formRequest->form_id,
+                        'hr_approver_id' => $targetApproverId,
+                        'hr_department' => $hrDepartment->dept_name
+                    ]);
+                } else {
+                    // For IOM requests, route to target department head
+                    $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
+                        ->where('position', 'Head')
+                        ->where('accessRole', 'Approver')
+                        ->first();
+
+                    if (!$targetDepartmentHead) {
+                        DB::rollBack();
+                        Log::error('Target Department Head not found', [
+                            'department_id' => $formRequest->to_department_id
+                        ]);
+                        return back()->with('error', 'Target Department Head not found. Please contact your administrator.');
+                    }
+
+                    $targetApproverId = $targetDepartmentHead->accnt_id;
+                }
+            }
+
+            // Update request status and approver
+            $formRequest->status = $newStatus;
+            $formRequest->current_approver_id = $targetApproverId;
+            $formRequest->save();
 
             DB::commit();
             return redirect()->route('approvals.index')->with('success', "Request has been {$action}.");
+
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Approval process error: ' . $e->getMessage());
-            return back()->with('error', 'An error occurred while processing the request.');
+            Log::error('Approval process error: ' . $e->getMessage(), [
+                'form_id' => $formRequest->form_id,
+                'action' => $action,
+                'user_id' => $user->accnt_id,
+                'exception' => $e
+            ]);
+            return back()->with('error', 'An error occurred while processing the request. Please contact your administrator.');
         }
     }
 

@@ -81,6 +81,9 @@
                                             <div class="ml-6">
                                                 <div class="font-semibold text-gray-900 dark:text-gray-100">
                                                     {{ $approval->action }} by {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                                    @if($approval->approver->position === 'Head')
+                                                        <span class="text-sm font-normal text-gray-500 dark:text-gray-400">(Head)</span>
+                                                    @endif
                                                 </div>
                                                 @if($approval->comments)
                                                     <div class="mt-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600">
@@ -162,13 +165,19 @@
                             <h3 class="text-lg font-semibold mb-4">Signatures</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 @foreach ($formRequest->approvals->sortBy('action_date') as $approval)
-                                    @if($approval->action !== 'Submitted' && ($approval->signature_name || $approval->signature_data))
+                                    @if($approval->action !== 'Submitted')
                                         <div class="signature-card bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
                                             @if($approval->signature_data)
                                                 <div class="signature-image-container h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
                                                     <img src="{{ $approval->signature_data }}" 
                                                         alt="Digital Signature" 
                                                         class="max-h-16 object-contain">
+                                                </div>
+                                            @elseif($approval->signature_name)
+                                                <div class="signature-text-container h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
+                                                    <div class="text-xl font-signature" style="font-family: 'Dancing Script', cursive;">
+                                                        {{ strtoupper($approval->signature_name) }}
+                                                    </div>
                                                 </div>
                                             @endif
                                             <div class="mt-3 text-center">
@@ -198,14 +207,55 @@
                     {{-- Leave Specific Details --}}
                     @if ($formRequest->form_type === 'Leave' && $formRequest->leaveDetails)
                         <div class="border-b pb-4 mb-4">
-                            <h3 class="text-lg font-semibold">Leave Details</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
-                                <p><strong>Leave Type:</strong> {{ ucfirst($formRequest->leaveDetails->leave_type ?? 'N/A') }}</p>
-                                <p><strong>Date of Leave:</strong> {{ $formRequest->leaveDetails->date_of_leave ? \Carbon\Carbon::parse($formRequest->leaveDetails->date_of_leave)->format('M j, Y') : 'N/A' }}</p>
-                                <div class="md:col-span-2">
-                                    <p class="font-semibold">Reason:</p>
-                                    <div class="mt-1 p-3 bg-gray-50 dark:bg-gray-700 rounded-md whitespace-pre-wrap">{{ $formRequest->leaveDetails->description ?? 'N/A' }}</div>
+                            <h3 class="text-lg font-semibold mb-4">Leave Details</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <p class="font-medium">Leave Type:</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ ucfirst($formRequest->leaveDetails->leave_type) }} Leave</p>
                                 </div>
+                                <div>
+                                    <p class="font-medium">Duration:</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ $formRequest->leaveDetails->days }} day(s)</p>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Start Date:</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ $formRequest->leaveDetails->start_date->format('F j, Y') }}</p>
+                                </div>
+                                <div>
+                                    <p class="font-medium">End Date:</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ $formRequest->leaveDetails->end_date->format('F j, Y') }}</p>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <p class="font-medium">Description / Reason:</p>
+                                    <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap bg-gray-50 dark:bg-gray-700 p-3 rounded-md mt-1">{{ $formRequest->leaveDetails->description }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Signatures Section -->
+                        <div class="border-b pb-4 mb-4">
+                            <h3 class="text-lg font-semibold mb-4">Signatures</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                @foreach($formRequest->approvals->sortBy('action_date') as $approval)
+                                    @if($approval->action !== 'Submitted')
+                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
+                                        @if($approval->signature_data)
+                                            <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
+                                        @else
+                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">{{ strtoupper($approval->approver->employeeInfo->FirstName . ' ' . $approval->approver->employeeInfo->LastName) }}</div>
+                                        @endif
+                                        <div class="text-center">
+                                            <p class="font-medium">{{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}</p>
+                                            <p class="text-sm text-gray-600">
+                                                <span class="px-2 py-1 rounded {{ $approval->action === 'Approved' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800' }}">
+                                                    {{ $approval->action }}
+                                                </span>
+                                            </p>
+                                            <p class="text-sm text-gray-500 mt-1">{{ $approval->action_date->format('M j, Y') }}</p>
+                                        </div>
+                                    </div>
+                                    @endif
+                                @endforeach
                             </div>
                         </div>
                     @endif
@@ -224,4 +274,8 @@
             </div>
         </div>
     </div>
-</x-app-layout> 
+</x-app-layout>
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Homemade+Apple&family=Pacifico&family=Dancing+Script&display=swap');
+</style> 

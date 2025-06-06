@@ -59,7 +59,7 @@ class RequestController extends Controller
                 'iom_to_department_id' => 'required|integer|exists:tb_department,department_id',
                 'iom_re' => 'required|string|max:255',
                 'iom_priority' => ['required', Rule::in(['Routine', 'Urgent', 'Rush'])],
-                'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request'])],
+                'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request', 'Others'])],
                 'iom_specific_request_type' => [
                     Rule::requiredIf(fn() => $request->input('iom_purpose') === 'Request'),
                     'nullable', 
@@ -67,13 +67,21 @@ class RequestController extends Controller
                     'max:255', 
                     Rule::in(['Request for Facilities', 'Request for Computer Laboratory', 'Request for Venue'])
                 ],
+                'iom_other_purpose' => [
+                    Rule::requiredIf(fn() => $request->input('iom_purpose') === 'Others'),
+                    'nullable',
+                    'string',
+                    'max:255'
+                ],
                 'iom_description' => 'required|string|max:5000',
                 'iom_date_needed' => 'nullable|date|after_or_equal:today',
             ]);
         } elseif ($requestType === 'Leave') {
             $allRules = array_merge($allRules, [
                 'leave_type' => ['required', Rule::in(['sick', 'vacation', 'emergency'])],
-                'date_of_leave' => 'required|date|after_or_equal:today',
+                'leave_start_date' => 'required|date|after_or_equal:today',
+                'leave_end_date' => 'required|date|after_or_equal:leave_start_date',
+                'leave_days' => 'required|integer|min:1',
                 'leave_description' => 'required|string|max:1000',
             ]);
         }
@@ -92,21 +100,28 @@ class RequestController extends Controller
      */
     public function showConfirmationPage(): View|RedirectResponse
     {
-        $formData = session()->get('form_data_for_confirmation');
+        $formData = session('form_data_for_confirmation');
 
         if (!$formData) {
-            // If no data, redirect back to create form, perhaps with an error.
-            return redirect()->route('request.create')->with('error', 'No data to confirm. Please submit the form again.');
+            return redirect()->route('request.create')
+                ->with('error', 'No request data found. Please submit the form again.');
         }
+
+        // Get the user's role and position
+        $user = Auth::user();
+        $isDepartmentHead = $user->accessRole === 'Approver' && $user->position === 'Head';
 
         // To display department names instead of IDs
         $departments = Department::orderBy('dept_name')->get()->keyBy('department_id');
-        $user = Auth::user();
         $fromDepartmentName = $user->department ? $user->department->dept_name : 'N/A';
         
-        // Re-flash the data so it's available if the user navigates away and comes back (e.g. refresh)
-        // Or if they go back to edit and resubmit.
-        session()->flash('form_data_for_confirmation', $formData); // Re-flash for current confirmation page access
+        // Re-flash the data for the next request
+        session()->flash('form_data_for_confirmation', $formData);
+
+        // If it's a Department Head submitting an IOM, use the special confirmation page
+        if ($isDepartmentHead && $formData['request_type'] === 'IOM') {
+            return view('requests.confirm-department-head-iom', compact('formData'));
+        }
 
         return view('requests.confirm', compact('formData', 'departments', 'fromDepartmentName', 'user'));
     }
@@ -142,7 +157,6 @@ class RequestController extends Controller
 
         $requestType = $validatedData['request_type'];
         $user = Auth::user();
-
         $fromDepartmentId = $user->department_id;
 
         try {
@@ -158,8 +172,20 @@ class RequestController extends Controller
                     'iom_to_department_id' => 'required|integer|exists:tb_department,department_id',
                     'iom_re' => 'required|string|max:255',
                     'iom_priority' => ['required', Rule::in(['Routine', 'Urgent', 'Rush'])],
-                    'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request'])],
-                    'iom_specific_request_type' => [Rule::requiredIf($request->input('iom_purpose') === 'Request'), 'nullable', 'string', 'max:255', Rule::in(['Request for Facilities', 'Request for Computer Laboratory', 'Request for Venue'])],
+                    'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request', 'Others'])],
+                    'iom_specific_request_type' => [
+                        Rule::requiredIf(fn() => $request->input('iom_purpose') === 'Request'),
+                        'nullable',
+                        'string',
+                        'max:255',
+                        Rule::in(['Request for Facilities', 'Request for Computer Laboratory', 'Request for Venue'])
+                    ],
+                    'iom_other_purpose' => [
+                        Rule::requiredIf(fn() => $request->input('iom_purpose') === 'Others'),
+                        'nullable',
+                        'string',
+                        'max:255'
+                    ],
                     'iom_description' => 'required|string|max:5000',
                     'iom_date_needed' => 'required|date|after:today',
                 ]);
@@ -168,29 +194,35 @@ class RequestController extends Controller
                 $formRequest->to_department_id = $iomValidatedData['iom_to_department_id'];
                 $formRequest->date_submitted = now();
 
-                // Determine the first approver based on user's role
-                if ($user->accessRole === 'Requester') {
-                    // If requester is staff, route to their department head first
-                    $departmentHead = User::where('department_id', $user->department_id)
-                                        ->where('position', 'Head')
-                                        ->where('accessRole', 'Approver')
-                                        ->first();
-                    
-                    if (!$departmentHead) {
-                        DB::rollBack();
-                        return redirect()->back()->with('error', 'Department head not found. Please contact your administrator.')->withInput();
-                    }
+                // Save the form request first to get the form_id
+                $formRequest->save();
 
-                    $formRequest->status = 'Pending Department Head Approval';
-                    $formRequest->current_approver_id = $departmentHead->accnt_id;
-                } else if ($user->accessRole === 'Approver' && $user->position === 'Head') {
-                    // If requester is a head, determine if sending to own department or other
+                // Create IOM details
+                IomDetail::create([
+                    'form_id' => $formRequest->form_id,
+                    'date_needed' => $iomValidatedData['iom_date_needed'],
+                    'priority' => $iomValidatedData['iom_priority'],
+                    'purpose' => $this->formatIOMPurpose($iomValidatedData),
+                    'body' => $iomValidatedData['iom_description'],
+                ]);
+
+                // Handle routing based on user role
+                if ($user->accessRole === 'Approver' && $user->position === 'Head') {
+                    // Department Head is creating the request
                     if ($formRequest->to_department_id === $user->department_id) {
-                        // Head sending to own department - auto-approve
+                        // If sending to own department, auto-approve
                         $formRequest->status = 'Approved';
                         $formRequest->current_approver_id = null;
+                        
+                        // Create auto-approval record
+                        FormApproval::create([
+                            'form_id' => $formRequest->form_id,
+                            'approver_id' => $user->accnt_id,
+                            'action' => 'Approved',
+                            'action_date' => now()
+                        ]);
                     } else {
-                        // Head sending to different department - auto-note and route to target department head
+                        // If sending to different department, auto-note and route to target
                         $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
                                                 ->where('position', 'Head')
                                                 ->where('accessRole', 'Approver')
@@ -201,34 +233,36 @@ class RequestController extends Controller
                             return redirect()->back()->with('error', 'Target department head not found. Request cannot be submitted.')->withInput();
                         }
 
-                        if ($targetDepartmentHead->accnt_id === $user->accnt_id) {
-                            // If sender is also the head of target department
-                            $formRequest->status = 'Approved';
-                            $formRequest->current_approver_id = null;
-                        } else {
-                            // Auto-note and set status to In Progress
+                        // Set status to In Progress and route to target department
                             $formRequest->status = 'In Progress';
                             $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
-                        }
+
+                        // Create auto-note record with signature
+                        FormApproval::create([
+                            'form_id' => $formRequest->form_id,
+                            'approver_id' => $user->accnt_id,
+                            'action' => 'Noted',
+                            'action_date' => now(),
+                            'signature_data' => $request->signature ?? null,
+                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
+                        ]);
                     }
-                }
+                } else {
+                    // Regular staff is creating the request
+                    $departmentHead = User::where('department_id', $user->department_id)
+                        ->where('position', 'Head')
+                        ->where('accessRole', 'Approver')
+                        ->first();
 
-                $formRequest->save();
+                    if (!$departmentHead) {
+                        DB::rollBack();
+                        return redirect()->back()->with('error', 'Department head not found. Please contact your administrator.')->withInput();
+                    }
 
-                // Create IOM details
-                IomDetail::create([
-                    'form_id' => $formRequest->form_id,
-                    'date_needed' => $iomValidatedData['iom_date_needed'],
-                    'priority' => $iomValidatedData['iom_priority'],
-                    'purpose' => $iomValidatedData['iom_purpose'] . 
-                        ($iomValidatedData['iom_purpose'] === 'Request' && !empty($iomValidatedData['iom_specific_request_type']) 
-                            ? ' - ' . $iomValidatedData['iom_specific_request_type'] 
-                            : ''),
-                    'body' => $iomValidatedData['iom_description'],
-                ]);
+                    $formRequest->status = 'Pending';
+                    $formRequest->current_approver_id = $departmentHead->accnt_id;
 
-                // Only create Submitted record if not a department head
-                if (!($user->accessRole === 'Approver' && $user->position === 'Head')) {
+                    // Create submission record
                     FormApproval::create([
                         'form_id' => $formRequest->form_id,
                         'approver_id' => $user->accnt_id,
@@ -237,51 +271,97 @@ class RequestController extends Controller
                     ]);
                 }
 
-                // If department head is submitting, auto-create note approval
-                if ($user->accessRole === 'Approver' && $user->position === 'Head' && 
-                    $formRequest->to_department_id !== $user->department_id) {
-                    FormApproval::create([
-                        'form_id' => $formRequest->form_id,
-                        'approver_id' => $user->accnt_id,
-                        'action' => 'Noted',
-                        'action_date' => now()
-                    ]);
-                }
-
+                $formRequest->save();
                 $successMessage = 'IOM Request submitted successfully!';
 
             } elseif ($requestType === 'Leave') {
                 $leaveValidatedData = $request->validate([
                     'leave_type' => ['required', Rule::in(['sick', 'vacation', 'emergency'])],
-                    'date_of_leave' => 'required|date|after_or_equal:today',
+                    'leave_start_date' => 'required|date|after_or_equal:today',
+                    'leave_end_date' => 'required|date|after_or_equal:leave_start_date',
+                    'leave_days' => 'required|integer|min:1',
                     'leave_description' => 'required|string|max:1000',
                 ]);
 
                 $formRequest->title = 'Leave Request - ' . ucfirst($leaveValidatedData['leave_type']);
-                
-                // All leave requests go to HR Department Head
-                $hrDepartment = Department::where('dept_code', 'HR')->first();
-                if (!$hrDepartment) {
-                    DB::rollBack();
-                    return redirect()->back()->with('error', 'HR Department not found. Cannot submit leave request.')->withInput();
-                }
-                $hrDepartmentHead = User::where('department_id', $hrDepartment->department_id)
-                                        ->where('position', 'Head')
-                                        ->first();
-                if (!$hrDepartmentHead) {
-                    DB::rollBack();
-                    return redirect()->back()->with('error', 'HR Department Head not found. Cannot submit leave request.')->withInput();
-                }
-                $formRequest->current_approver_id = $hrDepartmentHead->accnt_id;
-                $formRequest->status = 'Pending';
+                $formRequest->date_submitted = now();
+
+                // Save the form request first to get the form_id
                 $formRequest->save();
 
+                // Create leave details
                 LeaveDetail::create([
                     'form_id' => $formRequest->form_id,
                     'leave_type' => $leaveValidatedData['leave_type'],
-                    'date_of_leave' => $leaveValidatedData['date_of_leave'],
+                    'start_date' => $leaveValidatedData['leave_start_date'],
+                    'end_date' => $leaveValidatedData['leave_end_date'],
+                    'days' => $leaveValidatedData['leave_days'],
                     'description' => $leaveValidatedData['leave_description'],
                 ]);
+
+                if ($user->accessRole === 'Approver' && $user->position === 'Head') {
+                    // Department Head is creating the request - route directly to HR
+                    $hrDepartment = Department::where('dept_code', 'HR')
+                        ->orWhere('dept_code', 'HRD')
+                        ->orWhere('dept_code', 'HRMD')
+                        ->orWhere('dept_name', 'like', '%Human Resource%')
+                        ->first();
+
+                    if (!$hrDepartment) {
+                        DB::rollBack();
+                        return redirect()->back()->with('error', 'HR Department not found. Please contact your administrator.')->withInput();
+                    }
+
+                    $hrApprover = User::where('department_id', $hrDepartment->department_id)
+                        ->where('position', 'Head')
+                        ->where('accessRole', 'Approver')
+                        ->first();
+
+                    if (!$hrApprover) {
+                        DB::rollBack();
+                        return redirect()->back()->with('error', 'HR Approver not found. Please contact your administrator.')->withInput();
+                    }
+
+                    // Set status and route to HR
+                    $formRequest->status = 'In Progress';
+                    $formRequest->current_approver_id = $hrApprover->accnt_id;
+                    $formRequest->to_department_id = $hrDepartment->department_id;
+
+                    // Create auto-note record
+                    FormApproval::create([
+                        'form_id' => $formRequest->form_id,
+                        'approver_id' => $user->accnt_id,
+                        'action' => 'Noted',
+                        'action_date' => now(),
+                        'signature_data' => $user->signature_data ?? null,
+                        'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
+                    ]);
+                } else {
+                    // Regular staff is creating the request
+                    $departmentHead = User::where('department_id', $user->department_id)
+                        ->where('position', 'Head')
+                        ->where('accessRole', 'Approver')
+                        ->first();
+
+                    if (!$departmentHead) {
+                        DB::rollBack();
+                        return redirect()->back()->with('error', 'Department Head not found. Please contact your administrator.')->withInput();
+                    }
+
+                    // Set initial status and route to department head
+                    $formRequest->status = 'Pending';
+                    $formRequest->current_approver_id = $departmentHead->accnt_id;
+
+                    // Create submission record
+                FormApproval::create([
+                    'form_id' => $formRequest->form_id,
+                    'approver_id' => $user->accnt_id,
+                    'action' => 'Submitted',
+                    'action_date' => now()
+                ]);
+                }
+
+                $formRequest->save();
                 $successMessage = 'Leave Request submitted successfully!';
             } else {
                 DB::rollBack();
@@ -296,7 +376,7 @@ class RequestController extends Controller
             return redirect()->back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', 'An unexpected error occurred. Please try again. Error: ' . $e->getMessage())->withInput();
+            return redirect()->back()->with('error', 'An error occurred while submitting your request. Please try again.')->withInput();
         }
     }
 
@@ -350,6 +430,17 @@ class RequestController extends Controller
         }
 
         return view('requests.print', compact('formRequest'));
+    }
+
+    private function formatIOMPurpose(array $data): string
+    {
+        $purpose = $data['iom_purpose'];
+        if ($purpose === 'Request' && !empty($data['iom_specific_request_type'])) {
+            $purpose .= ' - ' . $data['iom_specific_request_type'];
+        } elseif ($purpose === 'Others' && !empty($data['iom_other_purpose'])) {
+            $purpose .= ': ' . $data['iom_other_purpose'];
+        }
+        return $purpose;
     }
 
     // ... (show, edit, update, destroy methods can be added later)

@@ -84,8 +84,20 @@
                                         <option value="For Comments" {{ old('iom_purpose', $formData['iom_purpose'] ?? '') == 'For Comments' ? 'selected' : '' }}>For comments</option>
                                         <option value="For Approval" {{ old('iom_purpose', $formData['iom_purpose'] ?? '') == 'For Approval' ? 'selected' : '' }}>For approval</option>
                                         <option value="Request" {{ old('iom_purpose', $formData['iom_purpose'] ?? '') == 'Request' ? 'selected' : '' }}>Request</option>
+                                        <option value="Others" {{ old('iom_purpose', $formData['iom_purpose'] ?? '') == 'Others' ? 'selected' : '' }}>Others</option>
                                     </select>
                                     <x-input-error :messages="$errors->get('iom_purpose')" class="mt-2" />
+                                </div>
+
+                                <!-- Others Purpose Input Field -->
+                                <div id="iom_other_purpose_container" class="mb-4 hidden">
+                                    <x-input-label for="iom_other_purpose" :value="__('Specify Other Purpose')" />
+                                    <x-text-input id="iom_other_purpose" 
+                                        class="block mt-1 w-full" 
+                                        type="text" 
+                                        name="iom_other_purpose" 
+                                        :value="old('iom_other_purpose', $formData['iom_other_purpose'] ?? '')" />
+                                    <x-input-error :messages="$errors->get('iom_other_purpose')" class="mt-2" />
                                 </div>
                             </div>
                              <!-- IOM Specific Request Type (conditionally shown) -->
@@ -133,11 +145,25 @@
                                 <x-input-error :messages="$errors->get('leave_type')" class="mt-2" />
                             </div>
 
-                            <!-- Date of Leave -->
+                            <!-- Date Range of Leave -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <x-input-label for="leave_start_date" :value="__('Start Date')" />
+                                    <x-text-input id="leave_start_date" class="block mt-1 w-full" type="date" name="leave_start_date" :value="old('leave_start_date', $formData['leave_start_date'] ?? '')" required />
+                                    <x-input-error :messages="$errors->get('leave_start_date')" class="mt-2" />
+                                </div>
+                                <div>
+                                    <x-input-label for="leave_end_date" :value="__('End Date')" />
+                                    <x-text-input id="leave_end_date" class="block mt-1 w-full" type="date" name="leave_end_date" :value="old('leave_end_date', $formData['leave_end_date'] ?? '')" required />
+                                    <x-input-error :messages="$errors->get('leave_end_date')" class="mt-2" />
+                                </div>
+                            </div>
+
+                            <!-- Number of Days -->
                             <div class="mb-6">
-                                <x-input-label for="date_of_leave" :value="__('Date of Leave')" />
-                                <x-text-input id="date_of_leave" class="block mt-1 w-full" type="date" name="date_of_leave" :value="old('date_of_leave', $formData['date_of_leave'] ?? '')" />
-                                <x-input-error :messages="$errors->get('date_of_leave')" class="mt-2" />
+                                <x-input-label for="leave_days" :value="__('Number of Days')" />
+                                <x-text-input id="leave_days" class="block mt-1 w-full" type="number" name="leave_days" min="1" step="1" :value="old('leave_days', $formData['leave_days'] ?? '')" required readonly />
+                                <x-input-error :messages="$errors->get('leave_days')" class="mt-2" />
                             </div>
 
                             <!-- Leave Description/Reason -->
@@ -190,10 +216,16 @@
                             const confirmSubmitButton = document.getElementById('confirmSubmitButton');
                             const dateNeededInput = document.getElementById('iom_date_needed');
 
+                            // Leave form elements
+                            const leaveStartDate = document.getElementById('leave_start_date');
+                            const leaveEndDate = document.getElementById('leave_end_date');
+                            const leaveDays = document.getElementById('leave_days');
+
                             const iomPurposeSelect = document.getElementById('iom_purpose');
                             const iomSpecificRequestTypeContainer = document.getElementById('iom_specific_request_type_container');
                             const iomSpecificRequestTypeSelect = document.getElementById('iom_specific_request_type');
-
+                            const iomOtherPurposeContainer = document.getElementById('iom_other_purpose_container');
+                            const iomOtherPurposeInput = document.getElementById('iom_other_purpose');
 
                             // For IOM department autocomplete
                             const iomToDepartmentNameDisplay = document.getElementById('iom_to_department_name_display');
@@ -203,21 +235,67 @@
                             // Required attributes map for conditional validation (client-side indication)
                             // Note: Server-side validation is the source of truth.
                             const iomRequiredFields = ['iom_to_department_name_display', 'iom_re', 'iom_priority', 'iom_purpose', 'iom_description', 'iom_date_needed'];
-                            const leaveRequiredFields = ['date_of_leave', 'leave_description']; 
+                            const leaveRequiredFields = ['leave_type', 'leave_start_date', 'leave_end_date', 'leave_days', 'leave_description'];
 
-                            function toggleSpecificRequestTypeField() {
-                                if (iomPurposeSelect && iomSpecificRequestTypeContainer && iomSpecificRequestTypeSelect) {
-                                    if (iomPurposeSelect.value === 'Request') {
+                            function validateForm() {
+                                const selectedType = requestTypeSelect.value;
+                                if (!selectedType) {
+                                    alert('Please select a form type');
+                                    return false;
+                                }
+
+                                const requiredFields = selectedType === 'IOM' ? iomRequiredFields : leaveRequiredFields;
+                                for (const fieldId of requiredFields) {
+                                    const field = document.getElementById(fieldId);
+                                    if (!field) continue;
+                                    
+                                    if (fieldId === 'leave_type') {
+                                        const selectedRadio = document.querySelector('input[name="leave_type"]:checked');
+                                        if (!selectedRadio) {
+                                            alert('Please select a leave type');
+                                            return false;
+                                        }
+                                    } else if (!field.value.trim()) {
+                                        alert(`Please fill in the ${field.name.replace(/_/g, ' ')}`);
+                                        field.focus();
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            }
+
+                            function togglePurposeFields() {
+                                if (iomPurposeSelect && iomSpecificRequestTypeContainer && iomSpecificRequestTypeSelect && iomOtherPurposeContainer && iomOtherPurposeInput) {
+                                    const selectedPurpose = iomPurposeSelect.value;
+
+                                    // Handle Request option
+                                    if (selectedPurpose === 'Request') {
                                         iomSpecificRequestTypeContainer.classList.remove('hidden');
                                         iomSpecificRequestTypeSelect.setAttribute('required', 'required');
-                                    } else {
+                                        iomOtherPurposeContainer.classList.add('hidden');
+                                        iomOtherPurposeInput.removeAttribute('required');
+                                        iomOtherPurposeInput.value = '';
+                                    }
+                                    // Handle Others option
+                                    else if (selectedPurpose === 'Others') {
+                                        iomOtherPurposeContainer.classList.remove('hidden');
+                                        iomOtherPurposeInput.setAttribute('required', 'required');
                                         iomSpecificRequestTypeContainer.classList.add('hidden');
                                         iomSpecificRequestTypeSelect.removeAttribute('required');
-                                        iomSpecificRequestTypeSelect.value = ''; // Clear value when hidden
+                                        iomSpecificRequestTypeSelect.value = '';
+                                    }
+                                    // Handle other options
+                                    else {
+                                        iomSpecificRequestTypeContainer.classList.add('hidden');
+                                        iomSpecificRequestTypeSelect.removeAttribute('required');
+                                        iomSpecificRequestTypeSelect.value = '';
+                                        iomOtherPurposeContainer.classList.add('hidden');
+                                        iomOtherPurposeInput.removeAttribute('required');
+                                        iomOtherPurposeInput.value = '';
                                     }
                                 }
                             }
-                            
+
                             function setInitialToDepartmentDisplay() {
                                 const initialDeptId = iomToDepartmentIdHidden.value;
                                 if (initialDeptId && departmentDatalist && departmentDatalist.options) {
@@ -231,7 +309,6 @@
                                 }
                             }
 
-
                             function toggleFields() {
                                 const selectedType = requestTypeSelect.value;
                                 
@@ -240,8 +317,7 @@
                                 reviewButton.disabled = selectedType === '' || selectedType === null;
 
                                 document.querySelectorAll('.specific-fields [required]').forEach(el => el.removeAttribute('required'));
-                                 if (iomSpecificRequestTypeSelect) iomSpecificRequestTypeSelect.removeAttribute('required');
-
+                                if (iomSpecificRequestTypeSelect) iomSpecificRequestTypeSelect.removeAttribute('required');
 
                                 if (selectedType === 'IOM') {
                                     iomFields.classList.remove('hidden');
@@ -249,25 +325,61 @@
                                         const el = document.getElementById(id);
                                         if(el) el.setAttribute('required', 'required');
                                     });
-                                    toggleSpecificRequestTypeField(); // Also check this on type change
+                                    togglePurposeFields();
                                 } else if (selectedType === 'Leave') {
                                     leaveFields.classList.remove('hidden');
                                     leaveRequiredFields.forEach(id => {
                                         const el = document.getElementById(id);
                                         if(el) el.setAttribute('required', 'required');
                                     });
-                                    const firstLeaveTypeRadio = document.querySelector('input[name="leave_type"]');
-                                    if(firstLeaveTypeRadio) firstLeaveTypeRadio.setAttribute('required', 'required'); // One radio must be selected
                                 }
                             }
 
+                            function calculateLeaveDays() {
+                                if (leaveStartDate && leaveEndDate && leaveDays) {
+                                    const start = new Date(leaveStartDate.value);
+                                    const end = new Date(leaveEndDate.value);
+                                    
+                                    if (start && end && !isNaN(start) && !isNaN(end)) {
+                                        // Add 1 to include both start and end dates
+                                        const diffTime = Math.abs(end - start);
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                                        leaveDays.value = diffDays;
+                                    } else {
+                                        leaveDays.value = '';
+                                    }
+                                }
+                            }
+
+                            // Event Listeners
                             requestTypeSelect.addEventListener('change', toggleFields);
                             if (iomPurposeSelect) {
-                                iomPurposeSelect.addEventListener('change', toggleSpecificRequestTypeField);
+                                iomPurposeSelect.addEventListener('change', togglePurposeFields);
                             }
-                            
-                            setInitialToDepartmentDisplay(); // Set display name if ID is pre-filled
-                            toggleFields(); // Initial call based on old/formData
+
+                            if (leaveStartDate && leaveEndDate) {
+                                leaveStartDate.addEventListener('change', function() {
+                                    if (leaveEndDate.value) {
+                                        const startDate = new Date(this.value);
+                                        const endDate = new Date(leaveEndDate.value);
+                                        if (startDate > endDate) {
+                                            leaveEndDate.value = this.value;
+                                        }
+                                    }
+                                    calculateLeaveDays();
+                                });
+
+                                leaveEndDate.addEventListener('change', function() {
+                                    if (leaveStartDate.value) {
+                                        const startDate = new Date(leaveStartDate.value);
+                                        const endDate = new Date(this.value);
+                                        if (endDate < startDate) {
+                                            this.value = leaveStartDate.value;
+                                        }
+                                    }
+                                    calculateLeaveDays();
+                                });
+                            }
 
                             if (iomToDepartmentNameDisplay) {
                                 iomToDepartmentNameDisplay.addEventListener('input', function() {
@@ -288,8 +400,7 @@
                                     }
                                 });
 
-                                // Clear hidden ID if display name is manually cleared
-                                iomToDepartmentNameDisplay.addEventListener('change', function() { // Using 'change' to detect blur or selection from datalist
+                                iomToDepartmentNameDisplay.addEventListener('change', function() {
                                     if (this.value === '') {
                                         iomToDepartmentIdHidden.value = '';
                                     }
@@ -306,6 +417,10 @@
                             }
 
                             function showConfirmation() {
+                                if (!validateForm()) {
+                                    return;
+                                }
+
                                 const formData = new FormData(form);
                                 const requestType = formData.get('request_type');
                                 let content = '';
@@ -316,6 +431,15 @@
 
                                 if (requestType === 'IOM') {
                                     const dept = document.querySelector('#iom_to_department_name_display').value;
+                                    const purpose = formData.get('iom_purpose');
+                                    let displayPurpose = purpose;
+
+                                    if (purpose === 'Request' && formData.get('iom_specific_request_type')) {
+                                        displayPurpose += ` - ${formData.get('iom_specific_request_type')}`;
+                                    } else if (purpose === 'Others' && formData.get('iom_other_purpose')) {
+                                        displayPurpose += `: ${formData.get('iom_other_purpose')}`;
+                                    }
+
                                     content += `
                                         <p class="font-medium mb-2">To Department:</p>
                                         <p class="text-gray-800 dark:text-gray-200 mb-4 bg-indigo-50 dark:bg-indigo-900/30 p-2 rounded border-2 border-indigo-300 dark:border-indigo-600 shadow-sm">${dept}</p>
@@ -324,7 +448,7 @@
                                         <p class="font-medium mb-2">Priority:</p>
                                         <p class="text-gray-800 dark:text-gray-200 mb-4">${formData.get('iom_priority')}</p>
                                         <p class="font-medium mb-2">Purpose:</p>
-                                        <p class="text-gray-800 dark:text-gray-200 mb-4">${formData.get('iom_purpose')}</p>
+                                        <p class="text-gray-800 dark:text-gray-200 mb-4">${displayPurpose}</p>
                                         <p class="font-medium mb-2">Date Needed:</p>
                                         <p class="text-gray-800 dark:text-gray-200 mb-4">${formatDate(formData.get('iom_date_needed'))}</p>
                                         <p class="font-medium mb-2">Description:</p>
@@ -333,8 +457,8 @@
                                     content += `
                                         <p class="font-medium mb-2">Leave Type:</p>
                                         <p class="text-gray-800 dark:text-gray-200 mb-4">${formData.get('leave_type')}</p>
-                                        <p class="font-medium mb-2">Date of Leave:</p>
-                                        <p class="text-gray-800 dark:text-gray-200 mb-4">${formatDate(formData.get('date_of_leave'))}</p>
+                                        <p class="font-medium mb-2">Leave Period:</p>
+                                        <p class="text-gray-800 dark:text-gray-200 mb-4">${formatDate(formData.get('leave_start_date'))} to ${formatDate(formData.get('leave_end_date'))} (${formData.get('leave_days')} days)</p>
                                         <p class="font-medium mb-2">Reason:</p>
                                         <p class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">${formData.get('leave_description')}</p>`;
                                 }
@@ -344,89 +468,22 @@
                                 modal.classList.remove('hidden');
                             }
 
-                            // Add highlight functionality only for specific fields
-                            function addHighlight(element) {
-                                if (element) {
-                                    element.style.transition = 'all 0.3s';
-                                    element.style.boxShadow = '0 0 5px rgba(99, 102, 241, 0.5)';
-                                    element.style.borderColor = '#6366f1';
-                                }
-                            }
-
-                            function removeHighlight(element) {
-                                if (element) {
-                                    element.style.boxShadow = '';
-                                    element.style.borderColor = '';
-                                }
-                            }
-
-                            // Add event listeners for highlighting only Form Type and To Department
-                            const formTypeSelect = document.getElementById('request_type');
-                            const toDepartmentInput = document.getElementById('iom_to_department_name_display');
-
-                            if (formTypeSelect) {
-                                formTypeSelect.addEventListener('focus', () => addHighlight(formTypeSelect));
-                                formTypeSelect.addEventListener('blur', () => removeHighlight(formTypeSelect));
-                            }
-
-                            if (toDepartmentInput) {
-                                toDepartmentInput.addEventListener('focus', () => addHighlight(toDepartmentInput));
-                                toDepartmentInput.addEventListener('blur', () => removeHighlight(toDepartmentInput));
-                            }
-
-                            reviewButton.addEventListener('click', function(e) {
-                                e.preventDefault();
-                                if (form.checkValidity()) {
-                                    showConfirmation();
-                                } else {
-                                    form.reportValidity();
-                                }
-                            });
-
+                            // Event Listeners for Modal
+                            reviewButton.addEventListener('click', showConfirmation);
                             editButton.addEventListener('click', function() {
                                 modal.classList.add('hidden');
-                            });
-
-                            // Close modal when clicking outside
-                            modal.addEventListener('click', function(e) {
-                                if (e.target === modal) {
-                                    modal.classList.add('hidden');
-                                }
                             });
 
                             confirmSubmitButton.addEventListener('click', function() {
                                 form.submit();
                             });
 
-                            // Set minimum date for Date Needed
-                            function setMinimumDate() {
-                                const tomorrow = new Date();
-                                tomorrow.setDate(tomorrow.getDate() + 1);
-                                const formattedDate = tomorrow.toISOString().split('T')[0];
-                                if (dateNeededInput) {
-                                    dateNeededInput.min = formattedDate;
-                                    
-                                    // If current value is before minimum date, clear it
-                                    if (dateNeededInput.value && dateNeededInput.value <= formattedDate) {
-                                        dateNeededInput.value = '';
-                                    }
-                                }
-                            }
-
-                            // Set initial minimum date
-                            setMinimumDate();
-
-                            // Update minimum date at midnight
-                            setInterval(() => {
-                                const now = new Date();
-                                if (now.getHours() === 0 && now.getMinutes() === 0 && now.getSeconds() === 0) {
-                                    setMinimumDate();
-                                }
-                            }, 1000);
+                            setInitialToDepartmentDisplay();
+                            toggleFields();
                         });
                     </script>
                 </div>
             </div>
         </div>
     </div>
-</x-app-layout> 
+</x-app-layout>

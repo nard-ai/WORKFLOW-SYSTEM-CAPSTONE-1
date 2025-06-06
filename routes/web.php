@@ -70,6 +70,10 @@ Route::middleware('auth')->group(function () {
         Route::put('/approver-assignments/{user}', [ApproverAssignmentController::class, 'update'])
             ->name('approver-assignments.update')
             ->middleware('can:manage-approvers');
+
+        Route::get('/approver-assignments/check-updates', [ApproverAssignmentController::class, 'checkUpdates'])
+            ->name('approver-assignments.check-updates')
+            ->middleware('can:manage-approvers');
     });
 
     // Leave Requests -- REMOVED
@@ -86,6 +90,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/approvals/batch', [ApprovalController::class, 'batch'])->name('approvals.batch');
 
     Route::get('/request/{formId}/print', [RequestController::class, 'printView'])->name('request.print');
+
+    // Approvals routes
+    Route::get('/approvals', [ApprovalController::class, 'index'])->name('approvals.index');
+    Route::get('/approvals/check-updates', [ApprovalController::class, 'checkUpdates'])->name('approval.check-updates');
+    Route::get('/approval/{formId}', [ApprovalController::class, 'view'])->name('approval.view');
 });
 
 require __DIR__.'/auth.php';

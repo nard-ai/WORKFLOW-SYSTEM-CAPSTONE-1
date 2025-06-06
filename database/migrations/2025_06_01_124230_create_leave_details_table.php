@@ -14,7 +14,9 @@ return new class extends Migration
         Schema::create('leave_details', function (Blueprint $table) {
             $table->unsignedBigInteger('form_id')->primary(); // Foreign key to form_requests
             $table->enum('leave_type', ['sick', 'vacation', 'emergency']);
-            $table->date('date_of_leave');
+            $table->date('start_date');
+            $table->date('end_date');
+            $table->integer('days');
             $table->text('description')->nullable(); // The reason for leave
             // No timestamps needed here if they are tied to the main form_request
 

@@ -10,6 +10,7 @@ use Illuminate\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Hash;
 
 class ApproverAssignmentController extends Controller
 {
@@ -34,7 +35,7 @@ class ApproverAssignmentController extends Controller
         // Log the incoming request data
         Log::info('Approver assignment update request:', [
             'user_id' => $user->accnt_id,
-            'request_data' => $request->all()
+            'request_data' => $request->except(['password_confirmation']) // Don't log the password
         ]);
 
         // Validate that the user being updated is in the same department
@@ -53,7 +54,22 @@ class ApproverAssignmentController extends Controller
                 'accessRole' => 'required|in:Viewer,Approver',
                 'can_approve_pending' => 'nullable|in:0,1',
                 'can_approve_in_progress' => 'nullable|in:0,1',
+                'password_confirmation' => 'required|string',
             ]);
+
+            // Verify the password using Hash::check
+            if (!Hash::check($validated['password_confirmation'], Auth::user()->password)) {
+                return back()->with('error', 'Invalid password. Please try again.')
+                            ->withInput($request->except('password_confirmation'));
+            }
+
+            // Additional validation for Approver role
+            if ($validated['accessRole'] === 'Approver') {
+                if (!$request->has('can_approve_pending') && !$request->has('can_approve_in_progress')) {
+                    return back()->with('error', 'At least one permission must be selected for an Approver.')
+                                ->withInput($request->except('password_confirmation'));
+                }
+            }
 
             DB::beginTransaction();
 
@@ -90,7 +106,7 @@ class ApproverAssignmentController extends Controller
             return back()->with('success', "Successfully updated {$user->employeeInfo->FirstName}'s role and permissions.");
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Validation failed:', ['errors' => $e->errors()]);
-            return back()->withErrors($e->errors())->withInput();
+            return back()->withErrors($e->errors())->withInput($request->except('password_confirmation'));
         } catch (\Exception $e) {
             Log::error('Error updating approver assignment:', [
                 'user_id' => $user->accnt_id,

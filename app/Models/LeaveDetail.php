@@ -18,12 +18,16 @@ class LeaveDetail extends Model
     protected $fillable = [
         'form_id',
         'leave_type',
-        'date_of_leave',
+        'start_date',
+        'end_date',
+        'days',
         'description',
     ];
 
     protected $casts = [
-        'date_of_leave' => 'date',
+        'start_date' => 'date',
+        'end_date' => 'date',
+        'days' => 'integer',
     ];
 
     public function formRequest(): BelongsTo
