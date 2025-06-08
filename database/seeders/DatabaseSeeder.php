@@ -17,7 +17,7 @@ class DatabaseSeeder extends Seeder
             DepartmentSeeder::class,
             EmployeeAndAccountSeeder::class,
             SignatureStyleSeeder::class,
-            // You can add other general seeders here if needed
+
 
         ]);
     }

@@ -8,13 +8,14 @@ export default defineConfig({
             refresh: true,
         }),
     ],
-    server: {
-        host: '192.168.1.14', // Your computer's IP
-        hmr: {
-            host: '192.168.1.14' // Your computer's IP
-        },
-        watch: {
-            usePolling: true
-        }
-    }
+    // server: {
+    //     host: '192.168.1.14', // Your computer's IP
+    //     hmr: {
+    //         host: '192.168.1.14' // Your computer's IP
+    //     },
+    //     watch: {
+    //         usePolling: true
+    //     }
+    // }
 });
+    
