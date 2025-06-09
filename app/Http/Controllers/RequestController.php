@@ -15,6 +15,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use App\Models\FormApproval;
 use Carbon\Carbon; // Ensure Carbon is imported
+use Illuminate\Support\Facades\Log; // Add Log facade
 
 class RequestController extends Controller
 {
@@ -279,7 +280,7 @@ class RequestController extends Controller
             } elseif ($requestType === 'Leave') {
                 $leaveValidatedData = $request->validate([
                     'leave_type' => ['required', Rule::in(['sick', 'vacation', 'emergency'])],
-                    'leave_start_date' => 'required|date|after_or_equal:today', // Ensure this is after_or_equal:today
+                    'leave_start_date' => 'required|date|after_or_equal:today',
                     'leave_end_date' => 'required|date|after_or_equal:leave_start_date',
                     'leave_days' => 'required|integer|min:1',
                     'leave_description' => 'required|string|max:1000',
@@ -302,42 +303,75 @@ class RequestController extends Controller
                 ]);
 
                 if ($user->accessRole === 'Approver' && $user->position === 'Head') {
-                    // Department Head is creating the request - route directly to HR
-                    $hrDepartment = Department::where('dept_code', 'HR')
-                        ->orWhere('dept_code', 'HRD')
-                        ->orWhere('dept_code', 'HRMD')
-                        ->orWhere('dept_name', 'like', '%Human Resource%')
+                    // Department Head is creating a Leave request.
+                    // New logic: Route to VPAA first.
+                    $vpaaDepartment = Department::where('dept_code', 'VPAA')
+                        ->orWhere('dept_name', 'Vice President for Academic Affairs')
                         ->first();
-
-                    if (!$hrDepartment) {
-                        DB::rollBack();
-                        return redirect()->back()->with('error', 'HR Department not found. Please contact your administrator.')->withInput();
+                    $vpaaUser = null;
+                    if ($vpaaDepartment) {
+                        $vpaaUser = User::where('department_id', $vpaaDepartment->department_id)
+                            ->where('position', 'VPAA')
+                            ->where('accessRole', 'Approver')
+                            ->first();
                     }
 
-                    $hrApprover = User::where('department_id', $hrDepartment->department_id)
-                        ->where('position', 'Head')
-                        ->where('accessRole', 'Approver')
-                        ->first();
+                    if ($vpaaUser) {
+                        // VPAA found, route to VPAA
+                        $formRequest->status = 'Pending'; // Pending VPAA "Noted"
+                        $formRequest->current_approver_id = $vpaaUser->accnt_id;
+                        $formRequest->to_department_id = $vpaaUser->department_id;
 
-                    if (!$hrApprover) {
-                        DB::rollBack();
-                        return redirect()->back()->with('error', 'HR Approver not found. Please contact your administrator.')->withInput();
+                        // Create 'Submitted' record for the requesting Department Head
+                        FormApproval::create([
+                            'form_id' => $formRequest->form_id,
+                            'approver_id' => $user->accnt_id, // The requesting Dept Head
+                            'action' => 'Submitted',
+                            'action_date' => now(),
+                        ]);
+                    } else {
+                        // VPAA not found, fallback to HR
+                        Log::warning('VPAA user or department not found for routing Department Head Leave request. Falling back to HR.', [
+                            'form_id' => $formRequest->form_id,
+                            'requesting_user_id' => $user->accnt_id
+                        ]);
+
+                        $hrDepartment = Department::where('dept_code', 'HR')
+                            ->orWhere('dept_code', 'HRD')
+                            ->orWhere('dept_code', 'HRMD')
+                            ->orWhere('dept_name', 'like', '%Human Resource%')
+                            ->first();
+
+                        if (!$hrDepartment) {
+                            DB::rollBack();
+                            return redirect()->back()->with('error', 'HR Department not found for fallback routing. Please contact your administrator.')->withInput();
+                        }
+
+                        $hrApprover = User::where('department_id', $hrDepartment->department_id)
+                            ->where('position', 'Head')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+
+                        if (!$hrApprover) {
+                            DB::rollBack();
+                            return redirect()->back()->with('error', 'HR Approver not found for fallback routing. Please contact your administrator.')->withInput();
+                        }
+
+                        // Set status and route to HR
+                        $formRequest->status = 'In Progress'; // "In Progress" for HR
+                        $formRequest->current_approver_id = $hrApprover->accnt_id;
+                        $formRequest->to_department_id = $hrDepartment->department_id;
+
+                        // Create auto-note record for the requesting Department Head (self-noting)
+                        FormApproval::create([
+                            'form_id' => $formRequest->form_id,
+                            'approver_id' => $user->accnt_id,
+                            'action' => 'Noted',
+                            'action_date' => now(),
+                            'signature_data' => $request->signature ?? null, // Assuming signature might be part of form
+                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
+                        ]);
                     }
-
-                    // Set status and route to HR
-                    $formRequest->status = 'In Progress';
-                    $formRequest->current_approver_id = $hrApprover->accnt_id;
-                    $formRequest->to_department_id = $hrDepartment->department_id;
-
-                    // Create auto-note record
-                    FormApproval::create([
-                        'form_id' => $formRequest->form_id,
-                        'approver_id' => $user->accnt_id,
-                        'action' => 'Noted',
-                        'action_date' => now(),
-                        'signature_data' => $user->signature_data ?? null,
-                        'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
-                    ]);
                 } else {
                     // Regular staff is creating the request
                     $departmentHead = User::where('department_id', $user->department_id)

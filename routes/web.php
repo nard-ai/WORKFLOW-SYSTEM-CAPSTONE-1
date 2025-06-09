@@ -101,7 +101,8 @@ Route::middleware('auth')->group(function () {
 // Admin Routes
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
-    // Add other admin routes here in the future
+    // Add other admin routes here
+    Route::get('/requests/{formId}/track', [AdminController::class, 'showRequestTrack'])->name('request.track');
 });
 
 require __DIR__ . '/auth.php';

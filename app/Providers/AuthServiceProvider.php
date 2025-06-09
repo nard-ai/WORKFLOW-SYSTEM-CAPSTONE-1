@@ -28,8 +28,8 @@ class AuthServiceProvider extends ServiceProvider
         });
 
         Gate::define('manage-approvers', function ($user) {
-            // Only department heads can manage approvers
-            return $user->position === 'Head' && $user->accessRole === 'Approver';
+            // Only department heads or VPAA can manage approvers
+            return ($user->position === 'Head' || $user->position === 'VPAA') && $user->accessRole === 'Approver';
         });
 
         Gate::define('approve-requests', function ($user) {
@@ -37,4 +37,4 @@ class AuthServiceProvider extends ServiceProvider
             return $user->accessRole === 'Approver';
         });
     }
-} 
+}

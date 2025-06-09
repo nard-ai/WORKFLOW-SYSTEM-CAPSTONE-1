@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\SignatureStyle; // Add this line
 
 class User extends Authenticatable
 {
@@ -92,6 +93,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the signature style associated with the user.
+     */
+    public function signatureStyle(): BelongsTo
+    {
+        return $this->belongsTo(SignatureStyle::class, 'signature_style_id', 'id');
+    }
+
+    /**
      * Get the approver permissions for the user.
      */
     public function approverPermissions(): HasOne
@@ -104,23 +113,56 @@ class User extends Authenticatable
      */
     public function canApproveStatus(string $status): bool
     {
-        // Department heads can approve all statuses
-        if ($this->position === 'Head') {
-            return true;
-        }
-
         // Non-approvers can't approve anything
         if ($this->accessRole !== 'Approver') {
             return false;
         }
 
-        // Get the user's permissions
-        $permissions = $this->approverPermissions;
+        $permissions = $this->approverPermissions; // Fetches the related ApproverPermission record
+
+        // VPAA: Can always 'Note' (act on 'Pending') if they are an Approver.
+        // For other statuses, depends on their specific ApproverPermission record.
+        if ($this->position === 'VPAA') {
+            if ($status === 'Pending') {
+                return true; // VPAA (as Approver) can always act on 'Pending' requests assigned to them.
+            }
+            // For other statuses, VPAA needs explicit permissions from ApproverPermission table
+            if ($permissions) {
+                return match ($status) {
+                    // VPAA might handle 'In Progress' if, for example, a request is routed back to them,
+                    // or if they have a dual role like acting HR Head (though not the current scenario).
+                    // The seeder sets can_approve_in_progress to true for VPAA for flexibility.
+                    'In Progress' => $permissions->can_approve_in_progress,
+                    default => false,
+                };
+            }
+            return false; // No permission record and status is not 'Pending', so cannot act on other statuses.
+        }
+
+        // Department Heads: Check permissions first, then fall back to general role-based ability.
+        if ($this->position === 'Head') {
+            if ($permissions) { // If specific permissions exist, use them
+                return match ($status) {
+                    'Pending' => $permissions->can_approve_pending,
+                    'In Progress', 'Pending Target Department Approval' => $permissions->can_approve_in_progress,
+                    default => false,
+                };
+            }
+            // Default for Heads if no specific permission entry: can handle typical Head tasks.
+            return match ($status) {
+                'Pending', // e.g., Noting their own staff's request
+                'In Progress', // e.g., Approving a request targeted to their department
+                'Pending Target Department Approval' // Similar to 'In Progress' for Heads
+                => true,
+                default => false,
+            };
+        }
+
+        // For other approvers (e.g., Staff with Approver role, not Head or VPAA):
+        // Strictly based on their ApproverPermission record.
         if (!$permissions) {
             return false;
         }
-
-        // Check permissions based on status
         return match ($status) {
             'Pending' => $permissions->can_approve_pending,
             'In Progress', 'Pending Target Department Approval' => $permissions->can_approve_in_progress,

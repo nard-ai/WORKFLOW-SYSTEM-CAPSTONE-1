@@ -17,7 +17,7 @@ return new class extends Migration {
             $table->foreignId('department_id')->constrained('tb_department', 'department_id');
             $table->string('username')->unique();
             $table->string('password');
-            $table->enum('position', ['Head', 'Staff', 'Admin']); // Added Admin here
+            $table->enum('position', ['Head', 'Staff', 'Admin',]); // Added Admin here
             $table->enum('accessRole', ['Approver', 'Viewer', 'Admin']); // Added Admin here
             $table->string('status')->default('active');
             $table->timestamps();

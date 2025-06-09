@@ -18,17 +18,7 @@
                     {{-- Request Timeline --}}
                     <div class="border-b pb-4 mb-4">
                         <h3 class="text-lg font-semibold mb-4">Request Timeline</h3>
-                        @if($formRequest->status === 'Approved')
-                            <div class="mb-4 flex justify-end">
-                                <a href="{{ route('request.print', $formRequest->form_id) }}" target="_blank" 
-                                   class="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-blue-700 focus:bg-blue-700 active:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
-                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
-                                    </svg>
-                                    Print Request
-                                </a>
-                            </div>
-                        @endif
+                        {{-- Removed Print Button for admin view --}}
                         <div class="relative">
                             {{-- Timeline line --}}
                             <div class="absolute h-full w-1 bg-gradient-to-b from-blue-500 via-blue-300 to-gray-200 left-4 top-4"></div>
@@ -44,7 +34,7 @@
                                         </div>
                                     </div>
                                     <div class="ml-6">
-                                        <div class="font-semibold text-gray-900 dark:text-gray-100">Request Submitted by {{ $formRequest->requester->username }}</div>
+                                        <div class="font-semibold text-gray-900 dark:text-gray-100">Request Submitted by {{ $formRequest->requester->username }} ({{ $formRequest->requester->employeeInfo->FirstName ?? '' }} {{ $formRequest->requester->employeeInfo->LastName ?? '' }})</div>
                                         <div class="text-sm text-gray-500 dark:text-gray-400">
                                             {{ $formRequest->date_submitted->format('M j, Y') }} at {{ $formRequest->date_submitted->format('g:i A') }}
                                         </div>
@@ -80,7 +70,7 @@
                                             </div>
                                             <div class="ml-6">
                                                 <div class="font-semibold text-gray-900 dark:text-gray-100">
-                                                    {{ $approval->action }} by {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                                    {{ $approval->action }} by {{ $approval->approver->employeeInfo->FirstName ?? 'N/A' }} {{ $approval->approver->employeeInfo->LastName ?? '' }}
                                                     @if($approval->approver->position === 'Head')
                                                         <span class="text-sm font-normal text-gray-500 dark:text-gray-400">(Head)</span>
                                                     @endif
@@ -99,7 +89,7 @@
                                 @endforeach
 
                                 {{-- Show Completed status after all approvals --}}
-                                @if($formRequest->status === 'Approved')
+                                @if($formRequest->status === 'Approved' && $formRequest->approvals->where('action', 'Approved')->isNotEmpty())
                                     <li class="flex items-start">
                                         <div class="flex items-center justify-center">
                                             <div class="bg-green-500 rounded-full w-8 h-8 flex items-center justify-center ring-4 ring-white dark:ring-gray-800">
@@ -113,13 +103,31 @@
                                                 Completed
                                             </div>
                                             <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                                {{ \Carbon\Carbon::parse($formRequest->approvals->sortByDesc('action_date')->first()->action_date)->setTimezone('Asia/Manila')->format('M j, Y g:i A') }}
+                                                {{ \Carbon\Carbon::parse($formRequest->approvals->where('action', 'Approved')->sortByDesc('action_date')->first()->action_date)->setTimezone(config('app.timezone'))->format('M j, Y g:i A') }}
+                                            </div>
+                                        </div>
+                                    </li>
+                                @elseif($formRequest->status === 'Rejected' && $formRequest->approvals->where('action', 'Rejected')->isNotEmpty())
+                                     <li class="flex items-start">
+                                        <div class="flex items-center justify-center">
+                                            <div class="bg-red-500 rounded-full w-8 h-8 flex items-center justify-center ring-4 ring-white dark:ring-gray-800">
+                                                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                        <div class="ml-6">
+                                            <div class="font-semibold text-gray-900 dark:text-gray-100">
+                                                Request {{ $formRequest->status }}
+                                            </div>
+                                            <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                                 {{ \Carbon\Carbon::parse($formRequest->approvals->where('action', 'Rejected')->sortByDesc('action_date')->first()->action_date)->setTimezone(config('app.timezone'))->format('M j, Y g:i A') }}
                                             </div>
                                         </div>
                                     </li>
                                 @endif
 
-                                {{-- Current status if not completed --}}
+                                {{-- Current status if not completed/rejected --}}
                                 @if(!in_array($formRequest->status, ['Approved', 'Rejected', 'Cancelled']))
                                     <li class="flex items-start">
                                         <div class="flex items-center justify-center">
@@ -131,9 +139,13 @@
                                         </div>
                                         <div class="ml-6">
                                             <div class="font-semibold text-gray-900 dark:text-gray-100">Currently {{ $formRequest->status }}</div>
-                                            @if($currentApprover = App\Models\User::find($formRequest->current_approver_id))
+                                            @if($formRequest->currentApprover)
                                                 <div class="text-sm text-gray-500 dark:text-gray-400">
-                                                    Awaiting action from {{ $currentApprover->username }}
+                                                    Awaiting action from {{ $formRequest->currentApprover->employeeInfo->FirstName ?? $formRequest->currentApprover->username }} {{ $formRequest->currentApprover->employeeInfo->LastName ?? '' }}
+                                                </div>
+                                            @elseif($formRequest->status === 'Pending' && $formRequest->approvals->isEmpty()) {{-- Or specific initial pending state --}}
+                                                <div class="text-sm text-gray-500 dark:text-gray-400">
+                                                    Request is pending initial processing.
                                                 </div>
                                             @endif
                                         </div>
@@ -143,11 +155,23 @@
                         </div>
                     </div>
 
+                    {{-- Requester Information --}}
+                    <div class="border-b pb-4 mb-4">
+                        <h3 class="text-lg font-semibold">Requester Information</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
+                            <p><strong>Name:</strong> {{ $formRequest->requester->employeeInfo->FirstName ?? 'N/A' }} {{ $formRequest->requester->employeeInfo->LastName ?? '' }}</p>
+                            <p><strong>Username:</strong> {{ $formRequest->requester->username }}</p>
+                            <p><strong>Department:</strong> {{ $formRequest->requester->department->dept_name ?? 'N/A' }}</p>
+                            <p><strong>Email:</strong> {{ $formRequest->requester->employeeInfo->Email ?? 'N/A' }}</p>
+                        </div>
+                    </div>
+
                     {{-- IOM Specific Details --}}
                     @if ($formRequest->form_type === 'IOM' && $formRequest->iomDetails)
                         <div class="border-b pb-4 mb-4">
                             <h3 class="text-lg font-semibold">IOM Details</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
+                                <p><strong>From Department:</strong> {{ $formRequest->fromDepartment->dept_name ?? 'N/A' }} ({{ $formRequest->fromDepartment->dept_code ?? 'N/A' }})</p>
                                 <p><strong>To Department:</strong> {{ $formRequest->toDepartment->dept_name ?? 'N/A' }} ({{ $formRequest->toDepartment->dept_code ?? 'N/A' }})</p>
                                 <p><strong>Subject/Re:</strong> {{ $formRequest->title }}</p>
                                 <p><strong>Date Needed:</strong> {{ $formRequest->iomDetails->date_needed ? \Carbon\Carbon::parse($formRequest->iomDetails->date_needed)->format('M j, Y') : 'N/A' }}</p>
@@ -160,7 +184,7 @@
                             </div>
                         </div>
 
-                        {{-- Signatures Section --}}
+                        {{-- Signatures Section for IOM --}}
                         <div class="mt-8">
                             <h3 class="text-lg font-semibold mb-4">Signatures</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -185,14 +209,14 @@
                                                         {{ strtoupper($approval->signature_name) }}
                                                     </div>
                                                 </div>
-                                            @else
+                                            @else {{-- Fallback if no signature data or name but approval exists --}}
                                                 <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
                                                     <div class="text-sm text-gray-500 italic">No signature image/style</div>
                                                 </div>
                                             @endif
                                             <div class="mt-3 text-center">
                                                 <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                    {{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}
+                                                    {{ $approval->approver->employeeInfo->FirstName ?? 'N/A' }} {{ $approval->approver->employeeInfo->LastName ?? '' }}
                                                 </p>
                                                 <div class="flex items-center justify-center gap-2 mt-1">
                                                     <span class="text-xs px-2 py-1 rounded-full {{ 
@@ -229,11 +253,11 @@
                                 </div>
                                 <div>
                                     <p class="font-medium">Start Date:</p>
-                                    <p class="text-gray-800 dark:text-gray-200">{{ $formRequest->leaveDetails->start_date->format('F j, Y') }}</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ \Carbon\Carbon::parse($formRequest->leaveDetails->start_date)->format('F j, Y') }}</p>
                                 </div>
                                 <div>
                                     <p class="font-medium">End Date:</p>
-                                    <p class="text-gray-800 dark:text-gray-200">{{ $formRequest->leaveDetails->end_date->format('F j, Y') }}</p>
+                                    <p class="text-gray-800 dark:text-gray-200">{{ \Carbon\Carbon::parse($formRequest->leaveDetails->end_date)->format('F j, Y') }}</p>
                                 </div>
                                 <div class="md:col-span-2">
                                     <p class="font-medium">Description / Reason:</p>
@@ -242,13 +266,13 @@
                             </div>
                         </div>
 
-                        <!-- Signatures Section -->
+                        <!-- Signatures Section for Leave -->
                         <div class="border-b pb-4 mb-4">
                             <h3 class="text-lg font-semibold mb-4">Signatures</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 @foreach($formRequest->approvals->sortBy('action_date') as $approval)
                                     @if($approval->action !== 'Submitted')
-                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
+                                    <div class="signature-card bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
                                         @if($approval->signature_data)
                                             <div class="signature-image-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
                                                 <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="max-h-20 object-contain">
@@ -261,22 +285,23 @@
                                             <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
                                                 <div class="text-xl font-signature text-center" style="font-family: 'Dancing Script', cursive;">{{ strtoupper($approval->signature_name) }}</div>
                                             </div>
-                                        @else
+                                        @else {{-- Fallback for Leave signatures --}}
                                             <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
                                                  <div class="text-sm text-gray-500 italic">No signature image/style</div>
                                             </div>
                                         @endif
-                                        <div class="text-center">
-                                            <p class="font-medium">{{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}</p>
-                                            <p class="text-sm text-gray-600">
-                                                <span class="px-2 py-1 rounded {{ 
-                                                    $approval->action === 'Approved' ? 'bg-green-100 text-green-800' : 
-                                                    ($approval->action === 'Rejected' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800') 
+                                        <div class="mt-3 text-center">
+                                            <p class="font-medium text-gray-900 dark:text-gray-100">{{ $approval->approver->employeeInfo->FirstName ?? 'N/A' }} {{ $approval->approver->employeeInfo->LastName ?? '' }}</p>
+                                            <div class="flex items-center justify-center gap-2 mt-1">
+                                                <span class="text-xs px-2 py-1 rounded-full {{ 
+                                                    $approval->action === 'Approved' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
+                                                    ($approval->action === 'Rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : 
+                                                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200') 
                                                 }}">
                                                     {{ $approval->action }}
                                                 </span>
-                                            </p>
-                                            <p class="text-sm text-gray-500 mt-1">{{ $approval->action_date->format('M j, Y') }}</p>
+                                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ \Carbon\Carbon::parse($approval->action_date)->format('M j, Y') }}</span>
+                                            </div>
                                         </div>
                                     </div>
                                     @endif
@@ -287,12 +312,12 @@
 
                     {{-- Back to Dashboard Link --}}
                     <div class="mt-6">
-                        <a href="{{ route('dashboard') }}" 
+                        <a href="{{ route('admin.dashboard') }}" 
                             class="inline-flex items-center px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 hover:text-blue-600 hover:border-blue-300 active:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
                             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
                             </svg>
-                            Back to Dashboard
+                            Back to Admin Dashboard
                         </a>
                     </div>
                 </div>
@@ -303,4 +328,8 @@
 
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Homemade+Apple&family=Pacifico&family=Dancing+Script&display=swap');
+
+    .font-signature {
+        /* Base signature style, specific font-family will be applied inline */
+    }
 </style>

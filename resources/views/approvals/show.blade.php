@@ -129,38 +129,6 @@
                                 </div>
                             </div>
                         </div>
-
-                        {{-- Department Head Signature Section --}}
-                        @php
-                            $deptHeadApproval = $formRequest->approvals
-                                ->where('action', 'Noted')
-                                ->first();
-                        @endphp
-                        @if($deptHeadApproval)
-                            <div class="border-b pb-4 mb-4">
-                                <h3 class="text-lg font-semibold mb-4">Department Head Approval</h3>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
-                                        @if($deptHeadApproval->signature_data)
-                                            <img src="{{ $deptHeadApproval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
-                                        @else
-                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">
-                                                {{ strtoupper($deptHeadApproval->approver->employeeInfo->FirstName . ' ' . $deptHeadApproval->approver->employeeInfo->LastName) }}
-                                            </div>
-                                        @endif
-                                        <div class="text-center">
-                                            <p class="font-medium">{{ $deptHeadApproval->approver->employeeInfo->FirstName }} {{ $deptHeadApproval->approver->employeeInfo->LastName }}</p>
-                                            <p class="text-sm text-gray-600">
-                                                <span class="px-2 py-1 rounded bg-blue-100 text-blue-800">
-                                                    {{ $deptHeadApproval->action }}
-                                                </span>
-                                            </p>
-                                            <p class="text-sm text-gray-500 mt-1">{{ $deptHeadApproval->action_date->format('M j, Y') }}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        @endif
                     @endif
 
                     {{-- Leave Specific Details --}}
@@ -178,38 +146,66 @@
                                 </div>
                             </div>
                         </div>
+                    @endif
 
-                        {{-- Department Head Signature Section --}}
-                        @php
-                            $deptHeadApproval = $formRequest->approvals
-                                ->where('action', 'Noted')
-                                ->first();
-                        @endphp
-                        @if($deptHeadApproval)
-                            <div class="border-b pb-4 mb-4">
-                                <h3 class="text-lg font-semibold mb-4">Department Head Approval</h3>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
-                                        @if($deptHeadApproval->signature_data)
-                                            <img src="{{ $deptHeadApproval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
-                                        @else
-                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">
-                                                {{ strtoupper($deptHeadApproval->approver->employeeInfo->FirstName . ' ' . $deptHeadApproval->approver->employeeInfo->LastName) }}
+                    {{-- Approval Signatures Section --}}
+                    @php
+                        $actualApprovals = $formRequest->approvals
+                            ->whereNotIn('action', ['Submitted'])
+                            ->filter(function ($approval) {
+                                return $approval->signature_data || ($approval->approver && $approval->approver->signatureStyle) || $approval->signature_name;
+                            });
+                    @endphp
+
+                    @if ($actualApprovals->count() > 0)
+                        <div class="border-b pb-4 mb-4">
+                            <h3 class="text-lg font-semibold mb-4">Signatures</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                @foreach ($formRequest->approvals->sortBy('action_date') as $approval)
+                                    @if ($approval->action !== 'Submitted' && ($approval->signature_data || ($approval->approver && $approval->approver->signatureStyle) || $approval->signature_name))
+                                        @php
+                                            $approverUser = $approval->approver;
+                                            $signatureStyle = $approverUser ? $approverUser->signatureStyle : null;
+                                            $displayName = $approval->signature_name ?: ($approverUser && $approverUser->employeeInfo ? $approverUser->employeeInfo->FirstName . ' ' . $approverUser->employeeInfo->LastName : 'N/A');
+                                        @endphp
+                                        <div class="border rounded-lg p-4 flex flex-col items-center justify-between h-48">
+                                            <div class="flex-grow flex items-center justify-center w-full mb-2"> 
+                                                @if ($approval->signature_data)
+                                                    <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="max-w-full max-h-24 object-contain">
+                                                @elseif ($approverUser && $signatureStyle)
+                                                    <div class="text-2xl font-signature px-2 text-center" style="font-family: '{{ $signatureStyle->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
+                                                        {{ strtoupper($displayName) }}
+                                                    </div>
+                                                @elseif ($approverUser) {{-- Fallback to plain text if no signature style but user exists and name is available --}}
+                                                    <div class="text-xl px-2 text-center" style="display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
+                                                        {{ strtoupper($displayName) }}
+                                                    </div>
+                                                @else
+                                                    <div class="text-gray-400 italic">Signature not available</div>
+                                                @endif
                                             </div>
-                                        @endif
-                                        <div class="text-center">
-                                            <p class="font-medium">{{ $deptHeadApproval->approver->employeeInfo->FirstName }} {{ $deptHeadApproval->approver->employeeInfo->LastName }}</p>
-                                            <p class="text-sm text-gray-600">
-                                                <span class="px-2 py-1 rounded bg-blue-100 text-blue-800">
-                                                    {{ $deptHeadApproval->action }}
-                                                </span>
-                                            </p>
-                                            <p class="text-sm text-gray-500 mt-1">{{ $deptHeadApproval->action_date->format('M j, Y') }}</p>
+                                            <div class="text-center">
+                                                <p class="font-medium text-sm">{{ $displayName }}</p>
+                                                <p class="text-xs">
+                                                    <span class="px-2 py-0.5 rounded text-xs
+                                                        @if($approval->action === 'Rejected') bg-red-100 text-red-800
+                                                        @elseif($approval->action === 'Noted') bg-blue-100 text-blue-800
+                                                        @elseif($approval->action === 'Approved') bg-green-100 text-green-800
+                                                        @else bg-gray-100 text-gray-800
+                                                        @endif">
+                                                        {{ $approval->action }}
+                                                    </span>
+                                                    @if ($approverUser)
+                                                        <span class="text-gray-500">({{ $approverUser->position }})</span>
+                                                    @endif
+                                                </p>
+                                                <p class="text-xs text-gray-500 mt-0.5">{{ \Carbon\Carbon::parse($approval->action_date)->setTimezone(config('app.timezone_display', 'Asia/Manila'))->format('M j, Y, g:i A') }}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
+                                    @endif
+                                @endforeach
                             </div>
-                        @endif
+                        </div>
                     @endif
 
                     {{-- Approval Actions --}}
@@ -429,21 +425,31 @@
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         
-        // Set canvas size
-        canvas.width = 600;
-        canvas.height = 150;
+        // Set canvas size - reduced width to make the image aspect ratio less wide
+        canvas.width = 600; // Reduced width from 800 to 600
+        canvas.height = 150; // Kept height at 150
         
         // Configure text style
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = 'white'; // Background color
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#1f2937';
+        ctx.fillStyle = '#1f2937'; // Text color
         
-        // Calculate font size based on text length
-        const maxFontSize = 72;
-        const minFontSize = 48;
-        const calculatedSize = Math.max(minFontSize, Math.min(maxFontSize, 800 / text.length));
-        
-        ctx.font = `${calculatedSize}px ${fontFamily}`;
+        // Calculate font size based on text length and canvas width
+        const maxFontSize = 60; 
+        const minFontSize = 24; // Adjusted min font size to allow more scaling for long names
+        let fontSize = maxFontSize;
+
+        ctx.font = `${fontSize}px ${fontFamily}`;
+        let textWidth = ctx.measureText(text).width;
+
+        // Dynamically adjust font size if text is too wide for the canvas
+        // Padding is 20px on each side (total 40px)
+        while (textWidth > canvas.width - 40 && fontSize > minFontSize) { 
+            fontSize -= 2; // Reduce font size
+            ctx.font = `${fontSize}px ${fontFamily}`;
+            textWidth = ctx.measureText(text).width;
+        }
+
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
@@ -593,5 +599,28 @@
             this.value = upperName;
         }
         updateAllPreviews(upperName);
+    });
+
+    // Update signature preview when name input changes
+    const nameInput = document.getElementById('name');
+    nameInput.addEventListener('input', function() {
+        const currentName = this.value.toUpperCase();
+        document.querySelectorAll('.signature-style .preview-text').forEach(preview => {
+            preview.textContent = currentName || 'Your Signature';
+        });
+        // If a style is selected, update the hidden signature input
+        if (selectedStyle) {
+            const styleElement = document.querySelector(`.signature-style[data-style-id='${selectedStyle}']`);
+            if (styleElement) {
+                const fontFamily = styleElement.querySelector('.preview-text').style.fontFamily;
+                document.getElementById('signature').value = textToImage(currentName, fontFamily);
+            }
+        }
+    });
+
+    // Initial update of previews with the default name
+    const initialName = nameInput.value.toUpperCase();
+    document.querySelectorAll('.signature-style .preview-text').forEach(preview => {
+        preview.textContent = initialName || 'Your Signature';
     });
 </script>

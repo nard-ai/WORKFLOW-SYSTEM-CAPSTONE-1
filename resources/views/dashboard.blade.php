@@ -12,7 +12,7 @@
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="text-lg font-medium">Welcome, {{ Auth::user()->employeeInfo->FirstName ?? Auth::user()->username }}!</h3>
+                            
                             @if(isset($departmentName) && $departmentName !== 'N/A')
                                 <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">Department: <span class="font-medium">{{ $departmentName }}</span></p>
                             @endif

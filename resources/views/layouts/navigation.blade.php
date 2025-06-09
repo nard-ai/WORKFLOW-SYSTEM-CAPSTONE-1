@@ -5,16 +5,26 @@
             <div class="flex">
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
-                        <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
-                    </a>
+                    {{-- Modified Logo Link for Admin --}}
+                    @if(Auth::user()->accessRole === 'Admin')
+                        <a href="{{ route('admin.dashboard') }}">
+                            <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
+                        </a>
+                    @else
+                        <a href="{{ route('dashboard') }}">
+                            <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
+                        </a>
+                    @endif
                 </div>
 
                 <!-- Navigation Links -->
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                    <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                        {{ __('Dashboard') }}
-                    </x-nav-link>
+                    {{-- Hide Dashboard for Admin --}}
+                    @if(Auth::user()->accessRole !== 'Admin')
+                        <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
+                            {{ __('Dashboard') }}
+                        </x-nav-link>
+                    @endif
 
                     {{-- Regular User Links --}}
                     @if(Auth::user()->accessRole !== 'Admin')
@@ -30,7 +40,7 @@
                             @endif
                         </x-nav-link>
 
-                        @if(Auth::user()->position === 'Head' && Auth::user()->accessRole === 'Approver')
+                        @if((Auth::user()->position === 'Head' || Auth::user()->position === 'VPAA') && Auth::user()->accessRole === 'Approver')
                             <x-nav-link :href="route('approver-assignments.index')" :active="request()->routeIs('approver-assignments.index')">
                                 {{ __('Manage Approvers') }}
                             </x-nav-link>
@@ -114,9 +124,12 @@
     <!-- Responsive Navigation Menu -->
     <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
-            <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                {{ __('Dashboard') }}
-            </x-responsive-nav-link>
+            {{-- Hide Dashboard for Admin in Responsive Menu --}}
+            @if(Auth::user()->accessRole !== 'Admin')
+                <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
+                    {{ __('Dashboard') }}
+                </x-responsive-nav-link>
+            @endif
 
             {{-- Regular User Responsive Links --}}
             @if(Auth::user()->accessRole !== 'Admin')
@@ -131,7 +144,7 @@
                         </span>
                     @endif
                 </x-responsive-nav-link>
-                 @if(Auth::user()->position === 'Head' && Auth::user()->accessRole === 'Approver')
+                 @if((Auth::user()->position === 'Head' || Auth::user()->position === 'VPAA') && Auth::user()->accessRole === 'Approver')
                     <x-responsive-nav-link :href="route('approver-assignments.index')" :active="request()->routeIs('approver-assignments.index')">
                         {{ __('Manage Approvers') }}
                     </x-responsive-nav-link>

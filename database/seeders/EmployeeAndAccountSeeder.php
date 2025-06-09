@@ -5,10 +5,10 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use App\Models\Department; // Added for Eloquent operations
-use App\Models\EmployeeInfo; // Added for Eloquent operations
-use App\Models\User; // Added for Eloquent operations (assuming User model is for tb_account)
-use Faker\Factory as Faker; // Added for generating fake data
+use App\Models\Department;
+use App\Models\EmployeeInfo;
+use App\Models\User;
+use Faker\Factory as Faker;
 
 class EmployeeAndAccountSeeder extends Seeder
 {
@@ -44,6 +44,8 @@ class EmployeeAndAccountSeeder extends Seeder
                 ['dept_name' => 'President', 'category' => 'Non-teaching', 'dept_code' => 'PRES'],
                 // Add Administration Department
                 ['dept_name' => 'Administration', 'category' => 'Non-teaching', 'dept_code' => 'ADMIN'],
+                // Add HR Department if not already present, crucial for leave workflow
+                ['dept_name' => 'Human Resources', 'category' => 'Non-teaching', 'dept_code' => 'HR'],
             ];
 
             $this->command->info('Ensuring specified departments exist...');
@@ -62,32 +64,32 @@ class EmployeeAndAccountSeeder extends Seeder
             $employees = [
                 // CCS
                 ['2025-0001', 'Ellana', 'Dean Regie', 'Camba', 'regie@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Head'],
-                ['2025-0002', 'Banag', 'Andro Philip', 'Gampay', 'Andro_Philip_Banag@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0003', 'Pecho', 'Julie', 'Laude', 'JULIE_PECHO@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0004', 'Alamo', 'Nino Francisco', 'Calzada', 'nino_francisco_alamo@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0005', 'Escudero', 'Rosalyn', 'Medina', 'Rosalyn_Escudero_sh@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0006', 'Deladia', 'Bobby', 'Cabanillas', 'BOBBY_DELADIA@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0007', 'Mascarinas', 'Moises', 'Abarientos', 'MOISES_MASCARINAS@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0008', 'Laureano', 'Michael Eugene', 'Borja', 'michaeleugene_laureano@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0009', 'Malig-on', 'Rodolfo', 'Benavidez', 'RODOLFO_MALIG-ON@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0010', 'Hagupit', 'Erika', 'Bonajos', 'erika_hagupit@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0011', 'Barrantes', 'Jino', 'Anday', 'jino_barrantes@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
-                ['2025-0012', 'Ayap', 'Jeffersonseph', 'Navarro', 'jeffersonseph_ayap@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0002', 'Banag', 'Mr. Andro Philip', 'Gampay', 'Andro_Philip_Banag@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0003', 'Pecho', 'Ms. Julie', 'Laude', 'JULIE_PECHO@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0004', 'Alamo', 'Mr. Nino Francisco', 'Calzada', 'nino_francisco_alamo@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0005', 'Escudero', 'Ms. Rosalyn', 'Medina', 'Rosalyn_Escudero_sh@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0006', 'Deladia', 'Mr. Bobby', 'Cabanillas', 'BOBBY_DELADIA@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0007', 'Mascarinas', 'Mr. Moises', 'Abarientos', 'MOISES_MASCARINAS@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0008', 'Laureano', 'Mr. Michael Eugene', 'Borja', 'michaeleugene_laureano@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0009', 'Malig-on', 'Mr. Rodolfo', 'Benavidez', 'RODOLFO_MALIG-ON@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0010', 'Hagupit', 'Ms. Erika', 'Bonajos', 'erika_hagupit@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+                ['2025-0011', 'Barrantes', 'Mr. Jino', 'Anday', 'jino_barrantes@itmlyceumalabang.onmicrosoft.com', 'College of Computer Studies', 'Staff'],
+
 
                 // CBA
                 ['2025-0013', 'Mendoza', 'Dr. Rolly', null, 'rolly_mendoza@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Head'],
-                ['2025-0014', 'Malanog', 'Prof. Ramir', 'Dela Rosa', 'RAMIR_MALANOG@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
-                ['2025-0015', 'Malanog', 'Prof. Ma. Marla', 'Buendia', 'MARLA_MALANOG@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
-                ['2025-0016', 'Manaois', 'Prof. Tony', 'Estrada', 'TONY_MANAOIS@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
-                ['2025-0017', 'Almodal', 'Prof. Jullie Ann', 'Dela Cruz', 'Jullie_Almodal@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
-                ['2025-0018', 'Arciaga', 'Prof. Kristofferson', 'Ortega', 'Kristofferson_Arciaga@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
+                ['2025-0014', 'Malanog', 'Mr. Ramir', 'Dela Rosa', 'RAMIR_MALANOG@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
+                ['2025-0015', 'Malanog', 'Ms. Ma. Marla', 'Buendia', 'MARLA_MALANOG@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
+                ['2025-0016', 'Manaois', 'Mr. Tony', 'Estrada', 'TONY_MANAOIS@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
+                ['2025-0017', 'Almodal', 'Mr. Jullie Ann', 'Dela Cruz', 'Jullie_Almodal@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
+                ['2025-0018', 'Arciaga', 'Mr. Kristofferson', 'Ortega', 'Kristofferson_Arciaga@itmlyceumalabang.onmicrosoft.com', 'College of Business Administration', 'Staff'],
 
                 // CBME
-                ['2025-0019', 'Garcia Jr.', 'Michael', 'Riñon', 'MICHAEL_GARCIA_JR@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'], // No title specified, assuming Head based on list order
-                ['2025-0020', 'Ramirez', 'Cesar Victorio', 'l', 'CESAR_RAMIREZ@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
-                ['2025-0021', 'Titan', 'John', 'Custodio', 'John_Titan@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
-                ['2025-0022', 'Pasion', 'Arlyn', 'Castillo', 'ARLYN_PASION@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
-                ['2025-0023', 'Salviejo', 'Perla', 'Melegrito', 'PERLA_SALVIEJO@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
+                ['2025-0019', 'Garcia Jr.', 'Mr. Michael', 'Riñon', 'MICHAEL_GARCIA_JR@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'], // No title specified, assuming Head based on list order
+                ['2025-0020', 'Ramirez', 'Mr. Cesar Victorio', 'l', 'CESAR_RAMIREZ@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
+                ['2025-0021', 'Titan', 'Mr. John', 'Custodio', 'John_Titan@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
+                ['2025-0022', 'Pasion', 'Ms. Arlyn', 'Castillo', 'ARLYN_PASION@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
+                ['2025-0023', 'Salviejo', 'Ms. Perla', 'Melegrito', 'PERLA_SALVIEJO@itmlyceumalabang.onmicrosoft.com', 'College of Business Management Education', 'Staff'],
 
                 // CTHM
                 ['2025-0024', 'Miranda', 'Dean Vernier', 'Cordova', 'VERNIER_MIRANDA@itmlyceumalabang.onmicrosoft.com', 'College of Tourism and Hospitality Management', 'Head'], // Changed from Staff to Head based on "Dean" title
@@ -100,10 +102,10 @@ class EmployeeAndAccountSeeder extends Seeder
 
                 // College of Psychology
                 ['2025-0030', 'Lopez', 'Dr. Lois Eunice Jemima', 'Lapira', 'LOISEUNICEJEMIMA_LOPEZ@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Head'],
-                ['2025-0031', 'De Leon', 'Ma\'am Juvy', 'Abundo', 'JUVY_DELEON@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
-                ['2025-0032', 'Callos', 'Ma\'am Jovilyn', null, 'jovilyn_callos@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
-                ['2025-0033', 'Bismar', 'Sir Jerwin', 'Anchoriz', 'JERWIN_BISMAR@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
-                ['2025-0034', 'Austria', 'Ma\'am Jonnamel', null, 'Jonnamel_Austria@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
+                ['2025-0031', 'De Leon', 'Ms. Juvy', 'Abundo', 'JUVY_DELEON@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
+                ['2025-0032', 'Callos', 'Ms. Jovilyn', null, 'jovilyn_callos@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
+                ['2025-0033', 'Bismar', 'Mr. Jerwin', 'Anchoriz', 'JERWIN_BISMAR@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
+                ['2025-0034', 'Austria', 'Ms. Jonnamel', null, 'Jonnamel_Austria@itmlyceumalabang.onmicrosoft.com', 'College of Psychology', 'Staff'],
 
                 // COE
                 ['2025-0035', 'Briones', 'Mr. Anthony Ralf', null, 'anthonyralf_briones@itmlyceumalabang.onmicrosoft.com', 'College of Engineering', 'Head'],
@@ -121,18 +123,25 @@ class EmployeeAndAccountSeeder extends Seeder
                 ['2025-0041B', 'Dunham', 'Dr. Teresita', 'Aryap', 'TERESITA_DUNHAM@itmlyceumalabang.onmicrosoft.com', 'College of Education', 'Head'],
 
                 // Finance
-                ['2025-0042', 'Ellana', 'Deborah', 'Mallari', 'DEBORAH_ELLANA@itmlyceumalabang.onmicrosoft.com', 'Finance', 'Head'],
+                ['2025-0042', 'Ellana', 'Mrs. Deborah', 'Mallari', 'DEBORAH_ELLANA@itmlyceumalabang.onmicrosoft.com', 'Finance', 'Head'],
 
                 // Clinic
-                ['2025-0043', 'Riego', 'Maria Kristina', 'M, MD', null, 'Clinic', 'Head'], // Added MD to MiddleName as per list
-                ['2025-0044', 'Pelisco', 'Mariza Monida', 'M, MD', null, 'Clinic', 'Staff'], // Added MD to MiddleName
-                ['2025-0045', 'Alquillera', 'Ailleen', 'A, DMD', null, 'Clinic', 'Staff'], // Added DMD to MiddleName
-                ['2025-0046', 'Pasaforte', 'Marites', 'R, R.D.', null, 'Clinic', 'Staff'], // Added R.D. to MiddleName
-                ['2025-0047', 'Ayap', 'Analyn', 'S, PT', null, 'Clinic', 'Staff'], // Added PT to MiddleName
-                ['2025-0048', 'Antonio', 'Jinny', 'D', null, 'Clinic', 'Staff'],
-                ['2025-0049', 'Guna', 'Eloisa Joy', 'F', null, 'Clinic', 'Staff'],
+                ['2025-0043', 'Riego', 'Ms. Maria Kristina', 'M, MD', null, 'Clinic', 'Head'], // Added MD to MiddleName as per list
+                ['2025-0044', 'Pelisco', 'Ms. Mariza Monida', 'M, MD', null, 'Clinic', 'Staff'], // Added MD to MiddleName
+                ['2025-0045', 'Alquillera', 'Ms. Ailleen', 'A, DMD', null, 'Clinic', 'Staff'], // Added DMD to MiddleName
+                ['2025-0046', 'Pasaforte', 'Ms. Marites', 'R, R.D.', null, 'Clinic', 'Staff'], // Added R.D. to MiddleName
+                ['2025-0047', 'Ayap', 'Ms. Analyn', 'S, PT', null, 'Clinic', 'Staff'], // Added PT to MiddleName
+                ['2025-0048', 'Antonio', 'Mr. Jinny', 'D', null, 'Clinic', 'Staff'],
+                ['2025-0049', 'Guna', 'Ms. Eloisa Joy', 'F', null, 'Clinic', 'Staff'],
                 // Add Admin User
                 ['2025-0000', 'Admin', 'User', null, 'admin_user@example.com', 'Administration', 'Admin'],
+                // Add VPAA User
+                ['2025-0069', 'Tanguilig III', 'Dr. Bartolome', '', 'bartolome_tanguilig@itmlyceumalabang.onmicrosoft.com', 'Vice President for Academic Affairs', 'VPAA'],
+                // Add Staff for VPAA Department
+                ['2025-0070', 'Smith', 'Fiona', '', 'fiona_smith@example.com', 'Vice President for Academic Affairs', 'Staff'],
+
+                // Add HR Head if not in existing list (Example)
+                ['2025-0071', 'Nabor', 'Ms. Allysa Christine', '', 'Allysa_Christine_Nabor@itmlyceumalabang.onmicrosoft.com', 'Human Resources', 'Head'],
             ];
 
             $this->command->info('Seeding employees and accounts from the provided list...');
@@ -197,6 +206,10 @@ class EmployeeAndAccountSeeder extends Seeder
                 if ($intendedPosition === 'Admin') {
                     $actualPosition = 'Admin';
                     $accessRole = 'Admin';
+                } elseif ($intendedPosition === 'VPAA') { // Specific handling for VPAA position
+                    $actualPosition = 'VPAA';
+                    $accessRole = 'Approver'; // VPAA is an approver
+                    // Ensure VPAA is not treated as a typical "Head" for department head count
                 } elseif ($intendedPosition === 'Head') {
                     if (isset($departmentHeads[$department->department_id])) {
                         $this->command->info("Department '{$department->dept_name}' (ID: {$department->department_id}) already has a Head ({$departmentHeads[$department->department_id]}). Assigning {$firstName} {$lastName} ({$empNo}) as Staff.");
@@ -300,14 +313,16 @@ class EmployeeAndAccountSeeder extends Seeder
             $this->command->info("Adding {$numberOfRandomUsers} additional random employees using numeric Emp_No sequence...");
 
             for ($i = 0; $i < $numberOfRandomUsers; $i++) {
-                $randomDept = $allDepartmentsInDB->isEmpty() ? null : $allDepartmentsInDB->random();
+                $randomDept = $allDepartmentsInDB->filter(function ($dept) {
+                    return $dept->dept_code !== 'VPAA'; // Avoid assigning random users to VPAA dept
+                })->random();
+
                 if (!$randomDept) {
-                    $this->command->warn("No departments available to assign random user. Skipping.");
+                    $this->command->warn("No suitable departments available to assign random user. Skipping.");
                     break;
                 }
 
                 $randomEmpNo = $this->generateUniqueNumericEmpNo($numericEmpNoCounter, $existingEmpNos);
-                // $existingEmpNos is already updated by generateUniqueNumericEmpNo
                 $randomEmail = $faker->unique()->safeEmail;
                 while (EmployeeInfo::where('Email', $randomEmail)->exists()) {
                     $randomEmail = $faker->unique()->safeEmail;
@@ -332,8 +347,8 @@ class EmployeeAndAccountSeeder extends Seeder
             }
             $this->command->info("Added {$numberOfRandomUsers} additional random employees.");
 
-            $this->command->info('EmployeeAndAccountSeeder completed successfully.');
 
+            $this->command->info('EmployeeAndAccountSeeder completed successfully.');
         }); // End DB::transaction
 
         if (DB::getDriverName() !== 'sqlite') {
