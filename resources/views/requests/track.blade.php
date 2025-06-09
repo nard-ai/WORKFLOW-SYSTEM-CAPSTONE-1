@@ -173,6 +173,12 @@
                                                         alt="Digital Signature" 
                                                         class="max-h-16 object-contain">
                                                 </div>
+                                            @elseif($approval->signature_name && $approval->signatureStyle)
+                                                <div class="signature-text-container h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
+                                                    <div class="text-xl font-signature" style="font-family: '{{ $approval->signatureStyle->font_family }}', cursive;">
+                                                        {{ strtoupper($approval->signature_name) }}
+                                                    </div>
+                                                </div>
                                             @elseif($approval->signature_name)
                                                 <div class="signature-text-container h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
                                                     <div class="text-xl font-signature" style="font-family: 'Dancing Script', cursive;">
@@ -241,13 +247,20 @@
                                     <div class="border rounded-lg p-4 flex flex-col items-center justify-center">
                                         @if($approval->signature_data)
                                             <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="h-16 mb-2">
+                                        @elseif($approval->signature_name && $approval->signatureStyle)
+                                            <div class="text-xl font-signature mb-2" style="font-family: '{{ $approval->signatureStyle->font_family }}', cursive;">{{ strtoupper($approval->signature_name) }}</div>
+                                        @elseif($approval->signature_name)
+                                            <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">{{ strtoupper($approval->signature_name) }}</div>
                                         @else
                                             <div class="text-xl font-signature mb-2" style="font-family: 'Dancing Script', cursive;">{{ strtoupper($approval->approver->employeeInfo->FirstName . ' ' . $approval->approver->employeeInfo->LastName) }}</div>
                                         @endif
                                         <div class="text-center">
                                             <p class="font-medium">{{ $approval->approver->employeeInfo->FirstName }} {{ $approval->approver->employeeInfo->LastName }}</p>
                                             <p class="text-sm text-gray-600">
-                                                <span class="px-2 py-1 rounded {{ $approval->action === 'Approved' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800' }}">
+                                                <span class="px-2 py-1 rounded {{ 
+                                                    $approval->action === 'Approved' ? 'bg-green-100 text-green-800' : 
+                                                    ($approval->action === 'Rejected' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800') 
+                                                }}">
                                                     {{ $approval->action }}
                                                 </span>
                                             </p>
@@ -278,4 +291,4 @@
 
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Homemade+Apple&family=Pacifico&family=Dancing+Script&display=swap');
-</style> 
+</style>

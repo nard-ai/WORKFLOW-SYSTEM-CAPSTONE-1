@@ -208,11 +208,11 @@
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                                                 @if($request->status === 'Approved')
-                                                    {{ $request->approvals->where('action', 'Approved')->first()->action_date->format('M j, Y g:i A') }}
+                                                    {{ optional($request->approvals->where('action', 'Approved')->sortByDesc('action_date')->first())->action_date?->setTimezone(config('app.timezone'))->format('M j, Y g:i A') ?? 'N/A' }}
                                                 @elseif($request->status === 'Rejected')
-                                                    {{ $request->approvals->where('action', 'Rejected')->first()->action_date->format('M j, Y g:i A') }}
+                                                    {{ optional($request->approvals->where('action', 'Rejected')->sortByDesc('action_date')->first())->action_date?->setTimezone(config('app.timezone'))->format('M j, Y g:i A') ?? 'N/A' }}
                                                 @else
-                                                    {{ $request->date_submitted->format('M j, Y g:i A') }}
+                                                    {{ $request->date_submitted?->setTimezone(config('app.timezone'))->format('M j, Y g:i A') ?? 'N/A' }}
                                                 @endif
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap">
@@ -248,7 +248,7 @@
                                             </td>
                                             @if($activeTab === 'rejected')
                                                 <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                                                    {{ Str::limit($request->approvals->where('action', 'Rejected')->first()->comments ?? 'No reason provided', 50) }}
+                                                    {{ Str::limit(optional(optional($request->approvals)->where('action', 'Rejected')->sortByDesc('action_date')->first())->comments ?? 'No reason provided', 50) }}
                                                 </td>
                                             @endif
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">

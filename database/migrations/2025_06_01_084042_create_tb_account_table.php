@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -18,8 +17,8 @@ return new class extends Migration
             $table->foreignId('department_id')->constrained('tb_department', 'department_id');
             $table->string('username')->unique();
             $table->string('password');
-            $table->enum('position', ['Head', 'Staff']);
-            $table->enum('accessRole', ['Approver', 'Viewer']);
+            $table->enum('position', ['Head', 'Staff', 'Admin']); // Added Admin here
+            $table->enum('accessRole', ['Approver', 'Viewer', 'Admin']); // Added Admin here
             $table->string('status')->default('active');
             $table->timestamps();
         });

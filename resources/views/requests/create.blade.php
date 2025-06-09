@@ -216,10 +216,39 @@
                             const confirmSubmitButton = document.getElementById('confirmSubmitButton');
                             const dateNeededInput = document.getElementById('iom_date_needed');
 
+                            // Set min date for iom_date_needed to today
+                            if (dateNeededInput) {
+                                const today = new Date().toLocaleDateString('en-CA'); // Use yyyy-mm-dd format
+                                dateNeededInput.setAttribute('min', today);
+                            }
+
                             // Leave form elements
                             const leaveStartDate = document.getElementById('leave_start_date');
                             const leaveEndDate = document.getElementById('leave_end_date');
                             const leaveDays = document.getElementById('leave_days');
+
+                            // Set min date for leave_start_date and leave_end_date to today
+                            if (leaveStartDate) {
+                                const today = new Date().toLocaleDateString('en-CA');
+                                leaveStartDate.setAttribute('min', today);
+                            }
+                            if (leaveEndDate) {
+                                const today = new Date().toLocaleDateString('en-CA');
+                                leaveEndDate.setAttribute('min', today);
+                            }
+
+                            // Add event listener to leave_start_date to update min for leave_end_date
+                            if (leaveStartDate && leaveEndDate) {
+                                leaveStartDate.addEventListener('change', function() {
+                                    if (leaveStartDate.value) {
+                                        leaveEndDate.setAttribute('min', leaveStartDate.value);
+                                        // If end date is before new start date, clear end date
+                                        if (leaveEndDate.value < leaveStartDate.value) {
+                                            leaveEndDate.value = '';
+                                        }
+                                    }
+                                });
+                            }
 
                             const iomPurposeSelect = document.getElementById('iom_purpose');
                             const iomSpecificRequestTypeContainer = document.getElementById('iom_specific_request_type_container');
@@ -409,7 +438,7 @@
 
                             function formatDate(dateString) {
                                 if (!dateString) return 'N/A';
-                                return new Date(dateString).toLocaleDateString('en-US', {
+                                return new Date(dateString).toLocaleDateString('en-CA', {
                                     year: 'numeric',
                                     month: 'long',
                                     day: 'numeric'

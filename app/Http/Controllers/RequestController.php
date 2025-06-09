@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use App\Models\FormApproval;
+use Carbon\Carbon; // Ensure Carbon is imported
 
 class RequestController extends Controller
 {
@@ -24,10 +25,10 @@ class RequestController extends Controller
     {
         $user = Auth::user();
         $requests = FormRequest::with(['iomDetails', 'leaveDetails', 'fromDepartment', 'toDepartment'])
-                                ->where('requested_by', $user->accnt_id)
-                                ->latest('date_submitted')
-                                ->paginate(10);
-        
+            ->where('requested_by', $user->accnt_id)
+            ->latest('date_submitted')
+            ->paginate(10);
+
         return view('requests.index', compact('requests'));
     }
 
@@ -39,7 +40,8 @@ class RequestController extends Controller
         $departments = Department::orderBy('dept_name')->get();
         // Pass old input to the view if available (e.g., after a validation error on confirmation page)
         $formData = session()->get('form_data_for_confirmation_edit', []);
-        return view('requests.create', compact('departments', 'formData')); 
+        $todayPHT = now()->tz(config('app.timezone'))->toDateString(); // Get current date in PHT
+        return view('requests.create', compact('departments', 'formData', 'todayPHT'));
     }
 
     /**
@@ -62,9 +64,9 @@ class RequestController extends Controller
                 'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request', 'Others'])],
                 'iom_specific_request_type' => [
                     Rule::requiredIf(fn() => $request->input('iom_purpose') === 'Request'),
-                    'nullable', 
-                    'string', 
-                    'max:255', 
+                    'nullable',
+                    'string',
+                    'max:255',
                     Rule::in(['Request for Facilities', 'Request for Computer Laboratory', 'Request for Venue'])
                 ],
                 'iom_other_purpose' => [
@@ -79,7 +81,7 @@ class RequestController extends Controller
         } elseif ($requestType === 'Leave') {
             $allRules = array_merge($allRules, [
                 'leave_type' => ['required', Rule::in(['sick', 'vacation', 'emergency'])],
-                'leave_start_date' => 'required|date|after_or_equal:today',
+                'leave_start_date' => 'required|date|after_or_equal:today', // Ensure this is after_or_equal:today
                 'leave_end_date' => 'required|date|after_or_equal:leave_start_date',
                 'leave_days' => 'required|integer|min:1',
                 'leave_description' => 'required|string|max:1000',
@@ -114,7 +116,7 @@ class RequestController extends Controller
         // To display department names instead of IDs
         $departments = Department::orderBy('dept_name')->get()->keyBy('department_id');
         $fromDepartmentName = $user->department ? $user->department->dept_name : 'N/A';
-        
+
         // Re-flash the data for the next request
         session()->flash('form_data_for_confirmation', $formData);
 
@@ -187,7 +189,7 @@ class RequestController extends Controller
                         'max:255'
                     ],
                     'iom_description' => 'required|string|max:5000',
-                    'iom_date_needed' => 'required|date|after:today',
+                    'iom_date_needed' => 'required|date|after_or_equal:today', // Changed from after:today
                 ]);
 
                 $formRequest->title = $iomValidatedData['iom_re'];
@@ -213,7 +215,7 @@ class RequestController extends Controller
                         // If sending to own department, auto-approve
                         $formRequest->status = 'Approved';
                         $formRequest->current_approver_id = null;
-                        
+
                         // Create auto-approval record
                         FormApproval::create([
                             'form_id' => $formRequest->form_id,
@@ -224,9 +226,9 @@ class RequestController extends Controller
                     } else {
                         // If sending to different department, auto-note and route to target
                         $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                                                ->where('position', 'Head')
-                                                ->where('accessRole', 'Approver')
-                                                ->first();
+                            ->where('position', 'Head')
+                            ->where('accessRole', 'Approver')
+                            ->first();
 
                         if (!$targetDepartmentHead) {
                             DB::rollBack();
@@ -234,8 +236,8 @@ class RequestController extends Controller
                         }
 
                         // Set status to In Progress and route to target department
-                            $formRequest->status = 'In Progress';
-                            $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
+                        $formRequest->status = 'In Progress';
+                        $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
 
                         // Create auto-note record with signature
                         FormApproval::create([
@@ -277,7 +279,7 @@ class RequestController extends Controller
             } elseif ($requestType === 'Leave') {
                 $leaveValidatedData = $request->validate([
                     'leave_type' => ['required', Rule::in(['sick', 'vacation', 'emergency'])],
-                    'leave_start_date' => 'required|date|after_or_equal:today',
+                    'leave_start_date' => 'required|date|after_or_equal:today', // Ensure this is after_or_equal:today
                     'leave_end_date' => 'required|date|after_or_equal:leave_start_date',
                     'leave_days' => 'required|integer|min:1',
                     'leave_description' => 'required|string|max:1000',
@@ -353,12 +355,12 @@ class RequestController extends Controller
                     $formRequest->current_approver_id = $departmentHead->accnt_id;
 
                     // Create submission record
-                FormApproval::create([
-                    'form_id' => $formRequest->form_id,
-                    'approver_id' => $user->accnt_id,
-                    'action' => 'Submitted',
-                    'action_date' => now()
-                ]);
+                    FormApproval::create([
+                        'form_id' => $formRequest->form_id,
+                        'approver_id' => $user->accnt_id,
+                        'action' => 'Submitted',
+                        'action_date' => now()
+                    ]);
                 }
 
                 $formRequest->save();
@@ -396,8 +398,10 @@ class RequestController extends Controller
         ])->findOrFail($formId);
 
         // Check if user has permission to view this request
-        if (Auth::id() !== $formRequest->requested_by && 
-            Auth::user()->accessRole !== 'Approver') {
+        if (
+            Auth::id() !== $formRequest->requested_by &&
+            Auth::user()->accessRole !== 'Approver'
+        ) {
             abort(403, 'You do not have permission to view this request.');
         }
 
@@ -424,8 +428,10 @@ class RequestController extends Controller
             abort(403, 'Only completed requests can be printed.');
         }
 
-        if (Auth::id() !== $formRequest->requested_by && 
-            Auth::user()->accessRole !== 'Approver') {
+        if (
+            Auth::id() !== $formRequest->requested_by &&
+            Auth::user()->accessRole !== 'Approver'
+        ) {
             abort(403, 'You do not have permission to view this request.');
         }
 

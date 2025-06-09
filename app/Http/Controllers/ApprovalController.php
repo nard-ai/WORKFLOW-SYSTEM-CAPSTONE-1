@@ -26,29 +26,29 @@ class ApprovalController extends Controller
     public function index(Request $request): View
     {
         $user = Auth::user();
-        
+
         // Base query for requests
         $query = FormRequest::query()
             ->with(['requester', 'requester.department', 'approvals']);
 
         // For all users, show requests based on their department
-        $query->where(function($q) use ($user) {
-            $q->where(function($q1) use ($user) {
+        $query->where(function ($q) use ($user) {
+            $q->where(function ($q1) use ($user) {
                 // Requests from their department that need noting
                 $q1->where('from_department_id', $user->department_id)
-                   ->where('status', 'Pending');
-            })->orWhere(function($q2) use ($user) {
+                    ->where('status', 'Pending');
+            })->orWhere(function ($q2) use ($user) {
                 // Requests to their department that need approval
                 $q2->where('to_department_id', $user->department_id)
-                   ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                // Add condition for HR to see leave requests in progress
-                ->orWhere(function($q3) use ($user) {
-                    $q3->where('form_type', 'Leave')
-                       ->where('status', 'In Progress')
-                       ->whereHas('currentApprover', function($q4) use ($user) {
-                           $q4->where('accnt_id', $user->accnt_id);
-                       });
-                });
+                    ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                    // Add condition for HR to see leave requests in progress
+                    ->orWhere(function ($q3) use ($user) {
+                        $q3->where('form_type', 'Leave')
+                            ->where('status', 'In Progress')
+                            ->whereHas('currentApprover', function ($q4) use ($user) {
+                                $q4->where('accnt_id', $user->accnt_id);
+                            });
+                    });
             });
         });
 
@@ -76,7 +76,7 @@ class ApprovalController extends Controller
                     break;
                 case 'month':
                     $query->whereMonth('date_submitted', $now->month)
-                         ->whereYear('date_submitted', $now->year);
+                        ->whereYear('date_submitted', $now->year);
                     break;
             }
         }
@@ -87,19 +87,19 @@ class ApprovalController extends Controller
 
         // Create a base query for all pending requests in the department
         $pendingRequestsQuery = FormRequest::query()
-            ->where(function($q) use ($user) {
-                $q->where(function($q1) use ($user) {
+            ->where(function ($q) use ($user) {
+                $q->where(function ($q1) use ($user) {
                     // From department pending noting
                     $q1->where('from_department_id', $user->department_id)
-                       ->where('status', 'Pending');
-                })->orWhere(function($q2) use ($user) {
+                        ->where('status', 'Pending');
+                })->orWhere(function ($q2) use ($user) {
                     // To department pending approval
                     $q2->where('to_department_id', $user->department_id)
-                       ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+                        ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
                 });
             })
             ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
-        
+
         // Calculate statistics
         $pendingCount = $pendingRequestsQuery->count();
 
@@ -122,21 +122,21 @@ class ApprovalController extends Controller
         $requestsToApprove = $query->latest('date_submitted')->paginate(10);
 
         // Calculate approval rate
-        $totalFinalized = FormRequest::where(function($q) use ($user) {
-                $q->where('from_department_id', $user->department_id)
-                  ->orWhere('to_department_id', $user->department_id);
-            })
+        $totalFinalized = FormRequest::where(function ($q) use ($user) {
+            $q->where('from_department_id', $user->department_id)
+                ->orWhere('to_department_id', $user->department_id);
+        })
             ->whereIn('status', ['Approved', 'Rejected'])
             ->count();
 
-        $totalApproved = FormRequest::where(function($q) use ($user) {
-                $q->where('from_department_id', $user->department_id)
-                  ->orWhere('to_department_id', $user->department_id);
-            })
+        $totalApproved = FormRequest::where(function ($q) use ($user) {
+            $q->where('from_department_id', $user->department_id)
+                ->orWhere('to_department_id', $user->department_id);
+        })
             ->where('status', 'Approved')
             ->count();
 
-        $approvalRate = $totalFinalized > 0 
+        $approvalRate = $totalFinalized > 0
             ? round(($totalApproved / $totalFinalized) * 100)
             : 0;
 
@@ -180,7 +180,7 @@ class ApprovalController extends Controller
             $requestsToProcess = [];
             foreach ($request->selected_requests as $formId) {
                 $formRequest = FormRequest::find($formId);
-                
+
                 if (!$formRequest) {
                     $errors[] = "Request {$formId} not found.";
                     continue;
@@ -189,8 +189,8 @@ class ApprovalController extends Controller
                 // Check if user has permission to act on this request based on status and department
                 $canApprove = $user->canApproveStatus($formRequest->status) && (
                     ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
-                    (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) && 
-                     $formRequest->to_department_id === $user->department_id)
+                    (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                        $formRequest->to_department_id === $user->department_id)
                 );
 
                 if (!$canApprove) {
@@ -234,7 +234,7 @@ class ApprovalController extends Controller
                     // Update request status
                     if ($formRequest->status === 'Pending') {
                         $formRequest->status = 'In Progress';
-                        
+
                         // For leave requests, route to HR
                         if ($formRequest->form_type === 'Leave') {
                             $hrDepartment = Department::where('dept_code', 'HR')
@@ -242,13 +242,13 @@ class ApprovalController extends Controller
                                 ->orWhere('dept_code', 'HRMD')
                                 ->orWhere('dept_name', 'like', '%Human Resource%')
                                 ->first();
-                            
+
                             if ($hrDepartment) {
                                 $hrApprover = User::where('department_id', $hrDepartment->department_id)
                                     ->where('position', 'Head')
                                     ->where('accessRole', 'Approver')
                                     ->first();
-                                
+
                                 if ($hrApprover) {
                                     $formRequest->current_approver_id = $hrApprover->accnt_id;
                                     $formRequest->to_department_id = $hrDepartment->department_id;
@@ -311,10 +311,10 @@ class ApprovalController extends Controller
     public function show(FormRequest $formRequest): View
     {
         $user = Auth::user();
-        
+
         // Check if user's department is involved in the request
-        $canView = $user->department_id === $formRequest->from_department_id || 
-                  $user->department_id === $formRequest->to_department_id;
+        $canView = $user->department_id === $formRequest->from_department_id ||
+            $user->department_id === $formRequest->to_department_id;
 
         if (!$canView) {
             abort(403, 'You are not authorized to view this request.');
@@ -324,11 +324,11 @@ class ApprovalController extends Controller
 
         // Determine if the current user can take action based on their permissions
         $canTakeAction = $user->canApproveStatus($formRequest->status) && (
-            // For source department
+                // For source department
             ($formRequest->status === 'Pending' && $user->department_id === $formRequest->from_department_id) ||
-            // For target department
-            (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) && 
-             $user->department_id === $formRequest->to_department_id)
+                // For target department
+            (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                $user->department_id === $formRequest->to_department_id)
         );
 
         return view('approvals.show', compact('formRequest', 'canTakeAction'));
@@ -365,7 +365,7 @@ class ApprovalController extends Controller
     private function processApprovalAction(Request $request, FormRequest $formRequest, string $action): RedirectResponse
     {
         $user = Auth::user();
-        
+
         try {
             // Verify user has permission to act on this request
             if (!$user->canApproveStatus($formRequest->status)) {
@@ -375,9 +375,9 @@ class ApprovalController extends Controller
             // Verify department matches the current stage
             $isCorrectDepartment = match ($formRequest->status) {
                 'Pending' => $user->department_id === $formRequest->from_department_id,
-                'In Progress', 'Pending Target Department Approval' => 
-                    $user->department_id === $formRequest->to_department_id || 
-                    ($formRequest->form_type === 'Leave' && $user->accnt_id === $formRequest->current_approver_id),
+                'In Progress', 'Pending Target Department Approval' =>
+                $user->department_id === $formRequest->to_department_id ||
+                ($formRequest->form_type === 'Leave' && $user->accnt_id === $formRequest->current_approver_id),
                 default => false
             };
 
@@ -399,8 +399,9 @@ class ApprovalController extends Controller
                 'action' => $action,
                 'action_date' => now(),
                 'comments' => $request->comments,
-                'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
-                'signature_data' => $action === 'Approved' ? ($request->signature ?? null) : null // Only include signature for final approval
+                'signature_name' => $request->name ?? ($user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName),
+                'signature_data' => $request->signature ?? null,
+                'signature_style_id' => $request->signatureStyle ?? null,
             ]);
 
             // Determine the new status based on current status and action
@@ -422,7 +423,7 @@ class ApprovalController extends Controller
                         ->orWhere('dept_code', 'HRMD')
                         ->orWhere('dept_name', 'like', '%Human Resource%')
                         ->first();
-                    
+
                     if (!$hrDepartment) {
                         DB::rollBack();
                         Log::error('HR Department not found in the system.');
@@ -433,7 +434,7 @@ class ApprovalController extends Controller
                         ->where('position', 'Head')
                         ->where('accessRole', 'Approver')
                         ->first();
-                    
+
                     if (!$hrApprover) {
                         DB::rollBack();
                         Log::error('HR Department Head not found.', [
@@ -445,10 +446,10 @@ class ApprovalController extends Controller
                     }
 
                     $targetApproverId = $hrApprover->accnt_id;
-                    
+
                     // Set the to_department_id to HR for proper routing
                     $formRequest->to_department_id = $hrDepartment->department_id;
-                    
+
                     Log::info('Leave request routed to HR', [
                         'form_id' => $formRequest->form_id,
                         'hr_approver_id' => $targetApproverId,
@@ -496,19 +497,21 @@ class ApprovalController extends Controller
     private function calculateAverageProcessingTime(): string
     {
         $user = Auth::user();
-        
-        $completedRequests = FormRequest::where(function($query) use ($user) {
-                $query->where('current_approver_id', $user->id)
-                    ->orWhere(function($q) use ($user) {
-                        $q->whereHas('requester', function($q2) use ($user) {
-                            $q2->where('department_id', $user->department_id);
-                        });
+
+        $completedRequests = FormRequest::where(function ($query) use ($user) {
+            $query->where('current_approver_id', $user->id)
+                ->orWhere(function ($q) use ($user) {
+                    $q->whereHas('requester', function ($q2) use ($user) {
+                        $q2->where('department_id', $user->department_id);
                     });
-            })
+                });
+        })
             ->where('status', 'Approved')
-            ->with(['approvals' => function($query) {
-                $query->whereIn('action', ['Approved', 'Submitted']);
-            }])
+            ->with([
+                'approvals' => function ($query) {
+                    $query->whereIn('action', ['Approved', 'Submitted']);
+                }
+            ])
             ->get();
 
         $totalProcessingTime = 0;
@@ -517,14 +520,14 @@ class ApprovalController extends Controller
         foreach ($completedRequests as $req) {
             $submitted = $req->approvals->where('action', 'Submitted')->first();
             $approved = $req->approvals->where('action', 'Approved')->first();
-            
+
             if ($submitted && $approved) {
                 $totalProcessingTime += $submitted->action_date->diffInHours($approved->action_date);
                 $completedCount++;
             }
         }
 
-        return $completedCount > 0 
+        return $completedCount > 0
             ? round($totalProcessingTime / $completedCount) . 'h'
             : 'N/A';
     }

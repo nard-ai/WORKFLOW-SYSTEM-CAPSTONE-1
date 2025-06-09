@@ -7,6 +7,7 @@ use App\Http\Controllers\RequestController;
 use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\ApproverAssignmentController;
 use App\Http\Controllers\SignatureStyleController;
+use App\Http\Controllers\AdminController; // Import AdminController
 
 Route::get('/', function () {
     if (auth()->check()) {
@@ -97,4 +98,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/approval/{formId}', [ApprovalController::class, 'view'])->name('approval.view');
 });
 
-require __DIR__.'/auth.php';
+// Admin Routes
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
+    // Add other admin routes here in the future
+});
+
+require __DIR__ . '/auth.php';
