@@ -8,6 +8,7 @@ use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\ApproverAssignmentController;
 use App\Http\Controllers\SignatureStyleController;
 use App\Http\Controllers\AdminController; // Import AdminController
+use Illuminate\Support\Facades\Log;
 
 Route::get('/', function () {
     if (auth()->check()) {
@@ -103,6 +104,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
     // Add other admin routes here
     Route::get('/requests/{formId}/track', [AdminController::class, 'showRequestTrack'])->name('request.track');
+});
+
+Route::get('/test-log', function () {
+    Log::info('This is a test log entry from /test-log route.');
+    return 'Test log entry attempted. Check laravel.log.';
 });
 
 require __DIR__ . '/auth.php';

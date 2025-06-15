@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use App\Models\SignatureStyle;
 use App\Models\Department;
+use Exception;
 
 class ApprovalController extends Controller
 {
@@ -31,42 +32,55 @@ class ApprovalController extends Controller
         $query = FormRequest::query()
             ->with(['requester', 'requester.department', 'approvals']);
 
-        // Determine requests awaiting the current user's action
-        $query->where(function ($mainQuery) use ($user) {
-            // 1. Requests directly assigned to the user via current_approver_id
-            $mainQuery->where('current_approver_id', $user->accnt_id);
+        // Get VPAA department ID once to avoid multiple queries
+        $vpaaDepartment = Department::where('dept_code', 'VPAA')->first();
+        $isVPAADepartment = $vpaaDepartment && $user->department_id === $vpaaDepartment->department_id;
 
-            // 2. OR, if the user is a Head or VPAA (acting as Head for their dept staff),
-            //    handle standard department-based workflows for requests NOT YET specifically assigned.
-            if ($user->position === 'Head' || $user->position === 'VPAA') {
-                // 2a. Requests FROM the user's department, status 'Pending', and current_approver_id is NULL.
-                // This is for a Head/VPAA to 'Note' their own staff's initial submissions.
-                $mainQuery->orWhere(function ($subQuery) use ($user) {
-                    $subQuery->where('from_department_id', $user->department_id)
-                        ->where('status', 'Pending')
-                        ->whereNull('current_approver_id');
+        // Determine requests awaiting action or departmental view
+        $query->where(function ($mainQuery) use ($user, $isVPAADepartment) {
+            // For VPAA department users (any position)
+            if ($isVPAADepartment && in_array($user->accessRole, ['Approver', 'Viewer'])) {
+                $mainQuery->where(function ($vpaaQuery) use ($user) {
+                    // Show all requests targeted to VPAA department
+                    $vpaaQuery->where(function ($targetQuery) use ($user) {
+                        $targetQuery->where('to_department_id', $user->department_id)
+                            ->whereIn('status', ['Pending', 'In Progress', 'Pending Target Department Approval']);
+                    });
+                    // Also show requests from VPAA department
+                    $vpaaQuery->orWhere(function ($sourceQuery) use ($user) {
+                        $sourceQuery->where('from_department_id', $user->department_id)
+                            ->where('status', 'Pending');
+                    });
+                });
+            } else {
+                // For non-VPAA departments
+                // First, exclude user's own requests unless they're an approver
+                $mainQuery->where(function ($q) use ($user) {
+                    $q->where('requested_by', '!=', $user->accnt_id)
+                        ->orWhere('current_approver_id', $user->accnt_id);
                 });
 
-                // 2b. Requests TO the user's department, status 'In Progress' or 'Pending Target Department Approval',
-                //     and current_approver_id is NULL.
-                // This is for a Head/VPAA to 'Approve' requests routed to their department (e.g. IOMs).
-                $mainQuery->orWhere(function ($subQuery) use ($user) {
-                    $subQuery->where('to_department_id', $user->department_id)
-                        ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                        ->whereNull('current_approver_id');
-                });
+                // Show department-specific requests
+                if ($user->position === 'Staff') {
+                    $mainQuery->where(function ($staffQuery) use ($user) {
+                        // Pending requests from their department
+                        $staffQuery->where(function ($fromDept) use ($user) {
+                            $fromDept->where('from_department_id', $user->department_id)
+                                ->where('status', 'Pending');
+                        });
+                        // Requests assigned to their department
+                        $staffQuery->orWhere(function ($toDept) use ($user) {
+                            $toDept->where('to_department_id', $user->department_id)
+                                ->whereIn('status', ['In Progress', 'Pending Target Department Approval']);
+                        });
+                    });
+                }
             }
-        })
-            ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']); // Applied to all results
-
-        // For viewers, show all requests but filter out completed ones
-        if ($user->accessRole === 'Viewer') {
-            $query->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
-        }
+        })->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
 
         // Apply filters if present
-        if (request('type')) {
-            $query->where('form_type', request('type'));
+        if ($request->filled('type')) {
+            $query->where('form_type', $request->type);
         }
 
         if ($request->filled('date_range')) {
@@ -95,25 +109,42 @@ class ApprovalController extends Controller
         // Create a base query for all pending requests in the department for STATS
         // This should mirror the logic of the main $query for consistency
         $pendingRequestsQuery = FormRequest::query()
-            ->where(function ($mainQuery) use ($user) {
-                // 1. Requests directly assigned to the user via current_approver_id
+            // First, exclude the user's own requests at the top level  
+            ->where('requested_by', '!=', $user->accnt_id)
+            ->where(function ($mainQuery) use ($user, $isVPAADepartment) {
+                // Part A: Requests directly assigned to the user
                 $mainQuery->where('current_approver_id', $user->accnt_id);
 
-                // 2. OR, if the user is a Head or VPAA
-                if ($user->position === 'Head' || $user->position === 'VPAA') {
-                    // 2a. From department, Pending, no specific approver
-                    $mainQuery->orWhere(function ($subQuery) use ($user) {
-                        $subQuery->where('from_department_id', $user->department_id)
-                            ->where('status', 'Pending')
-                            ->whereNull('current_approver_id');
-                    });
-                    // 2b. To department, In Progress/Pending Target, no specific approver
-                    $mainQuery->orWhere(function ($subQuery) use ($user) {
-                        $subQuery->where('to_department_id', $user->department_id)
-                            ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                            ->whereNull('current_approver_id');
-                    });
-                }
+                // Part B: Requests that are unassigned but should be in the user's queue
+                $mainQuery->orWhere(function ($unassignedQuery) use ($user, $isVPAADepartment) {
+                    if (
+                        ($user->position === 'Head' || $user->position === 'VPAA') ||
+                        ($user->position === 'Staff' && in_array($user->accessRole, ['Approver', 'Viewer']))
+                    ) {
+                        $unassignedQuery->whereNull('form_requests.current_approver_id')
+                            ->where(function ($workflowQuery) use ($user, $isVPAADepartment) {
+                                if ($isVPAADepartment) {
+                                    // For VPAA department
+                                    $workflowQuery->where(function ($vpaaTargetQuery) use ($user) {
+                                        $vpaaTargetQuery->where('form_requests.to_department_id', $user->department_id)
+                                            ->whereIn('form_requests.status', ['Pending', 'In Progress', 'Pending Target Department Approval']);
+                                    })->orWhere(function ($vpaaSourceQuery) use ($user) {
+                                        $vpaaSourceQuery->where('form_requests.from_department_id', $user->department_id)
+                                            ->where('form_requests.status', 'Pending');
+                                    });
+                                } else {
+                                    // For non-VPAA departments
+                                    $workflowQuery->where(function ($deptQuery) use ($user) {
+                                        $deptQuery->where('form_requests.from_department_id', $user->department_id)
+                                            ->where('form_requests.status', 'Pending');
+                                    })->orWhere(function ($targetQuery) use ($user) {
+                                        $targetQuery->where('form_requests.to_department_id', $user->department_id)
+                                            ->whereIn('form_requests.status', ['In Progress', 'Pending Target Department Approval']);
+                                    });
+                                }
+                            });
+                    }
+                });
             })
             ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
 
@@ -136,7 +167,7 @@ class ApprovalController extends Controller
         ];
 
         // Get the final paginated results - for display we still respect the viewer/approver distinction
-        $requestsToApprove = $query->latest('date_submitted')->paginate(10);
+        $formRequests = $query->latest('date_submitted')->paginate(10);
 
         // Calculate approval rate
         $totalFinalized = FormRequest::where(function ($q) use ($user) {
@@ -158,7 +189,7 @@ class ApprovalController extends Controller
             : 0;
 
         return view('approvals.index', [
-            'requestsToApprove' => $requestsToApprove,
+            'formRequests' => $formRequests,
             'stats' => $stats,
             'approvalRate' => $approvalRate,
             'averageResponseTime' => $stats['avgTime'],
@@ -203,16 +234,46 @@ class ApprovalController extends Controller
                     continue;
                 }
 
-                // Check if user has permission to act on this request based on status and department
-                $canApprove = $user->canApproveStatus($formRequest->status) && (
-                    ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
-                    (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
-                        $formRequest->to_department_id === $user->department_id)
-                );
+                // Check if user has permission to act on this request based on status, position, and department
+                $canApprove = false;
+
+                // VPAA can approve all requests since they are higher than department heads
+                if ($user->position === 'VPAA' && $user->accessRole === 'Approver') {
+                    $canApprove = true;  // VPAA can approve any request in any state
+                } else {
+                    // For other roles, check normal authorization rules
+                    if ($user->position === 'Head') {
+                        // Department Heads can approve requests in their department
+                        $canApprove = ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
+                            (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                                $formRequest->to_department_id === $user->department_id);
+                    } else {
+                        // Regular approvers need explicit permissions
+                        $canApprove = $user->canApproveStatus($formRequest->status) && (
+                            ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
+                            (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                                $formRequest->to_department_id === $user->department_id)
+                        );
+                    }
+                }
 
                 if (!$canApprove) {
                     $errors[] = "No permission to {$request->action} request {$formId}. Check request status and department permissions.";
                     continue;
+                }
+
+                // Additional business rule: Staff should not be able to action leave requests from their department head
+                if ($user->position === 'Staff' && $formRequest->form_type === 'Leave') {
+                    // Check if the requester is a Head in the same department
+                    $requesterIsHead = User::where('accnt_id', $formRequest->requested_by)
+                        ->where('department_id', $user->department_id)
+                        ->where('position', 'Head')
+                        ->exists();
+
+                    if ($requesterIsHead) {
+                        $errors[] = "Request {$formId}: Staff members cannot process leave requests from their department head.";
+                        continue;
+                    }
                 }
 
                 $requestsToProcess[] = $formRequest;
@@ -245,7 +306,8 @@ class ApprovalController extends Controller
                         'action_date' => now(),
                         'comments' => $request->comment,
                         'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
-                        'signature_data' => $request->signature
+                        'signature_data' => $request->signature,
+                        'signature_style_id' => $request->signature_style_id, // Added this line
                     ]);
 
                     // Update request status
@@ -272,12 +334,72 @@ class ApprovalController extends Controller
                                 }
                             }
                         } else {
-                            // For IOM requests, route to target department head
-                            $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                                ->where('position', 'Head')
-                                ->where('accessRole', 'Approver')
-                                ->first();
-                            $formRequest->current_approver_id = $targetDepartmentHead ? $targetDepartmentHead->accnt_id : null;
+                            // For IOM requests
+                            $targetDepartment = Department::find($formRequest->to_department_id);
+
+                            if (!$targetDepartment) {
+                                Log::error('Target department not found in database for IOM routing.', [
+                                    'form_id' => $formRequest->form_id,
+                                    'to_department_id' => $formRequest->to_department_id
+                                ]);
+                                throw new Exception('Target department ID is invalid. Request cannot be submitted.');
+                            }
+
+                            Log::info('IOM Routing: Checking Target Department Details', [
+                                'form_id' => $formRequest->form_id,
+                                'form_request_to_department_id' => $formRequest->to_department_id,
+                                'fetched_target_department_id' => $targetDepartment->department_id,
+                                'fetched_target_department_code' => $targetDepartment->dept_code,
+                                'fetched_target_department_name' => $targetDepartment->dept_name,
+                            ]);
+
+                            // Check if the identified target department is VPAA
+                            $isVPAADepartment = (strtoupper($targetDepartment->dept_code) === 'VPAA') ||
+                                (stripos($targetDepartment->dept_name, 'Vice President for Academic Affairs') !== false);
+
+                            Log::info('IOM Routing: VPAA Department Check Result', [
+                                'form_id' => $formRequest->form_id,
+                                'is_VPAA_department' => $isVPAADepartment,
+                                'condition1_dept_code_match_raw_value' => $targetDepartment->dept_code,
+                                'condition1_dept_code_match_result' => (strtoupper($targetDepartment->dept_code) === 'VPAA'),
+                                'condition2_dept_name_match_raw_value' => $targetDepartment->dept_name,
+                                'condition2_dept_name_match_result' => (stripos($targetDepartment->dept_name, 'Vice President for Academic Affairs') !== false),
+                            ]);
+
+                            if ($isVPAADepartment) {
+                                // For VPAA department, get the VPAA position holder
+                                $vpaaUserWithVpaaPosition = User::where('department_id', $targetDepartment->department_id)
+                                    ->where('position', 'VPAA')
+                                    ->where('accessRole', 'Approver')
+                                    ->first();
+
+                                if ($vpaaUserWithVpaaPosition) {
+                                    $formRequest->current_approver_id = $vpaaUserWithVpaaPosition->accnt_id;
+                                } else {
+                                    Log::warning('User with VPAA position not found in VPAA department for IOM routing', [
+                                        'form_id' => $formRequest->form_id,
+                                        'vpaa_dept_id' => $targetDepartment->department_id
+                                    ]);
+                                    throw new Exception('Approver with VPAA position not found in the VPAA department. Request cannot be submitted.');
+                                }
+                            } else {
+                                // For other departments, route to department head as usual
+                                $targetDepartmentHead = User::where('department_id', $targetDepartment->department_id)
+                                    ->where('position', 'Head')
+                                    ->where('accessRole', 'Approver')
+                                    ->first();
+
+                                if (!$targetDepartmentHead) {
+                                    Log::warning('Department Head not found for IOM routing (target was not identified as VPAA).', [
+                                        'form_id' => $formRequest->form_id,
+                                        'department_id' => $targetDepartment->department_id,
+                                        'target_dept_code' => $targetDepartment->dept_code,
+                                        'target_dept_name' => $targetDepartment->dept_name
+                                    ]);
+                                    throw new Exception('Target department head not found. Request cannot be submitted.');
+                                }
+                                $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
+                            }
                         }
                     } else {
                         // For In Progress requests, mark as Approved
@@ -313,7 +435,7 @@ class ApprovalController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Batch approval error: ' . $e->getMessage());
+            Log::error('Batch approval error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while processing the requests.',
@@ -327,34 +449,147 @@ class ApprovalController extends Controller
      */
     public function show(FormRequest $formRequest): View
     {
-        $user = Auth::user();
+        $this->authorize('view-approvals');
 
-        // Check if user's department is involved in the request
-        $canView = $user->department_id === $formRequest->from_department_id ||
-            $user->department_id === $formRequest->to_department_id ||
-            $formRequest->current_approver_id === $user->accnt_id; // User can also view if they are the current approver
+        $user = auth()->user();
 
-        if (!$canView && $user->accessRole !== 'Admin') { // Admins can view all
-            abort(403, 'You are not authorized to view this request.');
-        }
+        // Load relationships
+        $formRequest->load([
+            'requester',
+            'requester.department',
+            'fromDepartment',
+            'toDepartment',
+            'iomDetails',
+            'leaveDetails',
+            'approvals.approver.employeeInfo',
+            'approvals.approver.signatureStyle',
+            'approvals.signatureStyleApplied'
+        ]);
 
-        $formRequest->load(['requester.department', 'fromDepartment', 'toDepartment', 'iomDetails', 'leaveDetails', 'approvals.approver']);
-
-        // Determine if the current user can take action based on their permissions
-        $canTakeAction = $user->canApproveStatus($formRequest->status) && (
-                // Case 1: Request is directly assigned to the current user
-            ($formRequest->current_approver_id === $user->accnt_id) ||
-                // Case 2: Request is not assigned to anyone specific (current_approver_id is NULL) AND
-                //         it's in the user's departmental queue (if they are a Head or VPAA acting as Head for their dept)
-            (is_null($formRequest->current_approver_id) && ($user->position === 'Head' || $user->position === 'VPAA') &&
-                (
-                    ($formRequest->status === 'Pending' && $user->department_id === $formRequest->from_department_id) ||
-                    (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) && $user->department_id === $formRequest->to_department_id)
-                )
-            )
+        // Get VPAA department info
+        $userDepartment = $user->department;
+        $isVPAADepartment = $userDepartment && (
+            $userDepartment->dept_code === 'VPAA' ||
+            str_contains(strtoupper($userDepartment->dept_name), 'VICE PRESIDENT FOR ACADEMIC AFFAIRS')
         );
 
-        return view('approvals.show', compact('formRequest', 'canTakeAction'));
+        // Debug log
+        \Log::info('Show method info:', [
+            'user_id' => $user->accnt_id,
+            'position' => $user->position,
+            'department' => $userDepartment ? [
+                'id' => $userDepartment->department_id,
+                'name' => $userDepartment->dept_name,
+                'code' => $userDepartment->dept_code
+            ] : null,
+            'accessRole' => $user->accessRole,
+            'isVPAADepartment' => $isVPAADepartment
+        ]);
+
+        // Initialize permission flags
+        $canTakeAction = false;
+        $canApprovePending = false;
+        $canApproveInProgress = false;
+
+        // Check base permissions from ApproverPermission table for Staff
+        if ($user->position === 'Staff' && $user->accessRole === 'Approver') {
+            $permissions = $user->approverPermissions;
+            if ($permissions) {
+                $canApprovePending = $permissions->can_approve_pending;
+                $canApproveInProgress = $permissions->can_approve_in_progress;
+                \Log::info('Staff permissions loaded:', [
+                    'user_id' => $user->accnt_id,
+                    'can_approve_pending' => $canApprovePending,
+                    'can_approve_in_progress' => $canApproveInProgress
+                ]);
+            }
+        }
+
+        // VPAA position can always take action
+        if ($user->position === 'VPAA' && $user->accessRole === 'Approver') {
+            $canTakeAction = true;
+            $canApprovePending = true;
+            $canApproveInProgress = true;
+            \Log::info('VPAA full permissions granted');
+        }
+        // Head position can always take action on their department's requests
+        elseif ($user->position === 'Head' && $user->accessRole === 'Approver') {
+            $canTakeAction =
+                ($formRequest->status === 'Pending' && $formRequest->from_department_id === $user->department_id) ||
+                (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                    $formRequest->to_department_id === $user->department_id);
+
+            if ($canTakeAction) {
+                $canApprovePending = true;
+                $canApproveInProgress = true;
+            }
+            \Log::info('Head permissions check:', [
+                'canTakeAction' => $canTakeAction
+            ]);
+        }
+        // Staff position needs specific permissions and queue check
+        elseif ($user->position === 'Staff' && $user->accessRole === 'Approver') {
+            // For VPAA Staff, check their assigned permissions
+            if ($isVPAADepartment) {
+                // For Pending status
+                if ($formRequest->status === 'Pending' && $canApprovePending) {
+                    $canTakeAction = true;
+                }
+                // For In Progress/PTA status
+                elseif (
+                    in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                    $canApproveInProgress
+                ) {
+                    $canTakeAction = true;
+                }
+            } else {
+                // For non-VPAA Staff
+                // For Pending status
+                if ($formRequest->status === 'Pending') {
+                    $canTakeAction = $canApprovePending &&
+                        $formRequest->from_department_id === $user->department_id;
+                }
+                // For In Progress/PTA status
+                elseif (in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval'])) {
+                    $canTakeAction = $canApproveInProgress &&
+                        $formRequest->to_department_id === $user->department_id;
+                }
+            }
+
+            \Log::info('Staff permissions and queue check:', [
+                'canTakeAction' => $canTakeAction,
+                'status' => $formRequest->status,
+                'canApprovePending' => $canApprovePending,
+                'canApproveInProgress' => $canApproveInProgress,
+                'from_dept' => $formRequest->from_department_id,
+                'to_dept' => $formRequest->to_department_id,
+                'user_dept' => $user->department_id
+            ]);
+
+            // Staff cannot process leave requests from their department head
+            if ($canTakeAction && $formRequest->form_type === 'Leave' && !$isVPAADepartment) {
+                $requesterIsHead = User::where('accnt_id', $formRequest->requested_by)
+                    ->where('department_id', $user->department_id)
+                    ->where('position', 'Head')
+                    ->exists();
+
+                if ($requesterIsHead) {
+                    $canTakeAction = false;
+                    \Log::info('Disabled action for non-VPAA staff on head\'s leave request');
+                }
+            }
+        }
+
+        \Log::info('Final permission values:', [
+            'canTakeAction' => $canTakeAction,
+            'canApprovePending' => $canApprovePending,
+            'canApproveInProgress' => $canApproveInProgress,
+            'form_id' => $formRequest->form_id,
+            'form_type' => $formRequest->form_type,
+            'status' => $formRequest->status
+        ]);
+
+        return view('approvals.show', compact('formRequest', 'canTakeAction', 'canApprovePending', 'canApproveInProgress'));
     }
 
     public function note(Request $request, FormRequest $formRequest): RedirectResponse
@@ -390,194 +625,240 @@ class ApprovalController extends Controller
         $user = Auth::user();
 
         try {
-            // Verify user has permission to act on this request based on their general approval capabilities for the status
+            // Get VPAA department info
+            $userDepartment = $user->department;
+            $isVPAADepartment = $userDepartment && (
+                $userDepartment->dept_code === 'VPAA' ||
+                str_contains(strtoupper($userDepartment->dept_name), 'VICE PRESIDENT FOR ACADEMIC AFFAIRS')
+            );
+
+            // Debug log the action attempt and request details
+            \Log::info('Processing approval action:', [
+                'user_id' => $user->accnt_id,
+                'position' => $user->position,
+                'department' => $userDepartment ? [
+                    'id' => $userDepartment->department_id,
+                    'name' => $userDepartment->dept_name,
+                    'code' => $userDepartment->dept_code
+                ] : null,
+                'isVPAADepartment' => $isVPAADepartment,
+                'action' => $action,
+                'form_id' => $formRequest->form_id,
+                'form_type' => $formRequest->form_type,
+                'form_status' => $formRequest->status
+            ]);
+
+            // Verify user has permission to act
+            if ($user->accessRole !== 'Approver') {
+                \Log::warning('Non-approver attempted action', [
+                    'user_id' => $user->accnt_id,
+                    'access_role' => $user->accessRole
+                ]);
+                return back()->with('error', 'Only users with Approver role can take actions on requests.');
+            }
+
+            // Check if user has permission for the current request status
             if (!$user->canApproveStatus($formRequest->status)) {
+                \Log::warning('User lacks status-level permission', [
+                    'user_id' => $user->accnt_id,
+                    'status' => $formRequest->status
+                ]);
                 return back()->with('error', 'You do not have permission to approve requests at this stage.');
             }
 
-            // Verify this specific user is the correct one to act on this specific request instance
-            $isCorrectDepartmentOrUser = match ($formRequest->status) {
-                'Pending' => ($user->position === 'Head' && $user->department_id === $formRequest->from_department_id && $formRequest->current_approver_id === $user->accnt_id) || // Dept Head noting their staff's request
-                ($formRequest->current_approver_id === $user->accnt_id), // Specific user (like VPAA or initial Dept Head) is the current approver for a Pending request
-                'In Progress', 'Pending Target Department Approval' =>
-                ($user->position === 'Head' && $user->department_id === $formRequest->to_department_id && $formRequest->current_approver_id === $user->accnt_id) || // Target Dept Head approving
-                ($formRequest->current_approver_id === $user->accnt_id), // Specific user (like HR Head) is current approver for In Progress
-                default => false
-            };
+            // Verify this specific user is the correct one to act
+            $isAuthorizedToAct = false;
 
+            // Case 1: Request is directly assigned to the user
+            if ($formRequest->current_approver_id === $user->accnt_id) {
+                $isAuthorizedToAct = true;
+                \Log::info('Authorized to act: Direct assignee');
+            }
 
-            if (!$isCorrectDepartmentOrUser) {
-                Log::warning('Approval attempt by incorrect department/user', [
-                    'form_id' => $formRequest->form_id,
-                    'form_status' => $formRequest->status,
-                    'form_current_approver' => $formRequest->current_approver_id,
-                    'form_from_dept' => $formRequest->from_department_id,
-                    'form_to_dept' => $formRequest->to_department_id,
-                    'user_id' => $user->accnt_id,
-                    'user_dept' => $user->department_id,
-                    'user_position' => $user->position,
-                    'action_taken' => $action
+            // Case 2: User is VPAA
+            if (!$isAuthorizedToAct && $user->position === 'VPAA' && $user->accessRole === 'Approver') {
+                $isAuthorizedToAct = true;
+                \Log::info('Authorized to act: VPAA position');
+            }
+
+            // Case 3: User is VPAA Staff Approver handling a request in VPAA queue
+            if (!$isAuthorizedToAct && $user->position === 'Staff' && $isVPAADepartment && $user->accessRole === 'Approver') {
+                $permissions = $user->approverPermissions;
+
+                // For leave requests from department heads
+                if ($formRequest->form_type === 'Leave') {
+                    $requester = User::with('department')
+                        ->where('accnt_id', $formRequest->requested_by)
+                        ->first();
+
+                    \Log::info('Leave request requester details:', [
+                        'requester_id' => $requester ? $requester->accnt_id : null,
+                        'requester_position' => $requester ? $requester->position : null,
+                        'requester_dept' => $requester && $requester->department ? [
+                            'id' => $requester->department->department_id,
+                            'name' => $requester->department->dept_name
+                        ] : null
+                    ]);
+
+                    // Check permissions based on request status
+                    if ($formRequest->status === 'Pending' && $permissions && $permissions->can_approve_pending) {
+                        $isAuthorizedToAct = true;
+                        \Log::info('Authorized to act: VPAA Staff with Pending permission on Leave request');
+                    } elseif ($formRequest->status === 'In Progress' && $permissions && $permissions->can_approve_in_progress) {
+                        $isAuthorizedToAct = true;
+                        \Log::info('Authorized to act: VPAA Staff with In Progress permission on Leave request');
+                    }
+                } else {
+                    // For non-leave requests, check departmental queue and permissions
+                    if ($formRequest->status === 'Pending' && $permissions && $permissions->can_approve_pending) {
+                        $isAuthorizedToAct =
+                            $formRequest->from_department_id === $user->department_id ||
+                            $formRequest->to_department_id === $user->department_id;
+                        \Log::info('VPAA Staff Pending permission check for non-leave request:', [
+                            'isAuthorizedToAct' => $isAuthorizedToAct,
+                            'status' => $formRequest->status,
+                            'from_dept' => $formRequest->from_department_id,
+                            'to_dept' => $formRequest->to_department_id,
+                            'user_dept' => $user->department_id
+                        ]);
+                    } elseif ($formRequest->status === 'In Progress' && $permissions && $permissions->can_approve_in_progress) {
+                        $isAuthorizedToAct =
+                            $formRequest->to_department_id === $user->department_id;
+                    }
+                }
+            }
+
+            // Case 4: Regular Staff/Head with unassigned requests in their queue
+            if (!$isAuthorizedToAct && !$isVPAADepartment && ($user->position === 'Head' || ($user->position === 'Staff' && $user->accessRole === 'Approver'))) {
+                $permissions = $user->approverPermissions;
+
+                if ($formRequest->status === 'Pending' && ($user->position === 'Head' || ($permissions && $permissions->can_approve_pending))) {
+                    $isAuthorizedToAct = $formRequest->from_department_id === $user->department_id;
+                } elseif (
+                    in_array($formRequest->status, ['In Progress', 'Pending Target Department Approval']) &&
+                    ($user->position === 'Head' || ($permissions && $permissions->can_approve_in_progress))
+                ) {
+                    $isAuthorizedToAct = $formRequest->to_department_id === $user->department_id;
+                }
+
+                \Log::info('Regular Staff/Head queue check:', [
+                    'isAuthorizedToAct' => $isAuthorizedToAct,
+                    'position' => $user->position,
+                    'status' => $formRequest->status,
+                    'from_dept' => $formRequest->from_department_id,
+                    'to_dept' => $formRequest->to_department_id,
+                    'user_dept' => $user->department_id
                 ]);
-                return back()->with('error', 'This request is not currently assigned to you or your department for action.');
+
+                // Additional check: Staff (non-VPAA) cannot process leave requests from their head
+                if ($isAuthorizedToAct && $user->position === 'Staff' && $formRequest->form_type === 'Leave') {
+                    $requesterIsHead = User::where('accnt_id', $formRequest->requested_by)
+                        ->where('department_id', $user->department_id)
+                        ->where('position', 'Head')
+                        ->exists();
+
+                    if ($requesterIsHead) {
+                        $isAuthorizedToAct = false;
+                        \Log::info('Disabled authorization for non-VPAA staff trying to process head\'s leave');
+                    }
+                }
             }
 
-            // Validate comments if required
-            if ($action === 'Rejected' && empty($request->comments)) {
-                return back()->with('error', 'Comments are required when rejecting a request.');
+            if (!$isAuthorizedToAct) {
+                \Log::warning('Unauthorized action attempt', [
+                    'user_id' => $user->accnt_id,
+                    'form_id' => $formRequest->form_id,
+                    'action' => $action,
+                    'user_position' => $user->position,
+                    'user_department' => $user->department_id,
+                    'isVPAADepartment' => $isVPAADepartment,
+                    'status' => $formRequest->status
+                ]);
+                return back()->with('error', 'This request is not currently assigned to you, not in your department\'s actionable queue, or you lack specific override permissions for this action.');
             }
 
+            // Continue with the approval process
             DB::beginTransaction();
 
-            // Create approval record
+            // Create the approval record
             FormApproval::create([
                 'form_id' => $formRequest->form_id,
                 'approver_id' => $user->accnt_id,
                 'action' => $action,
                 'action_date' => now(),
                 'comments' => $request->comments,
-                'signature_name' => $request->name ?? ($user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName),
-                'signature_data' => $request->signature ?? null,
-                'signature_style_id' => $request->signatureStyle ?? null,
+                'signature_name' => $request->name ?? $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                'signature_data' => $request->signature,
+                'signature_style_id' => $request->signatureStyle
             ]);
 
-            // Determine the new status based on current status and action
-            $newStatus = match ($action) {
-                'Noted' => 'In Progress',
-                'Approved' => 'Approved',
-                'Rejected' => 'Rejected',
-                default => $formRequest->status
-            };
+            // Update the request status based on the action
+            if ($action === 'Noted') {
+                $formRequest->status = 'In Progress';
 
-            $targetApproverId = null;
-            $newToDepartmentId = $formRequest->to_department_id; // Default: keep current to_department_id
-
-            if ($newStatus === 'In Progress') { // This means action was 'Noted'
-                // Identify if current acting user is VPAA
-                $vpaaDepartment = Department::where('dept_code', 'VPAA')
-                    ->orWhere('dept_name', 'Vice President for Academic Affairs')
-                    ->first();
-                $isCurrentUserVPAA = $vpaaDepartment &&
-                    $user->department_id === $vpaaDepartment->department_id &&
-                    $user->position === 'VPAA' &&
-                    $user->accessRole === 'Approver';
-
+                // Find the next approver based on the request type and target department
                 if ($formRequest->form_type === 'Leave') {
-                    // Case 1: VPAA (current user) 'Noted' a Leave request.
-                    // This leave request was made by another Department Head and was 'Pending' for VPAA.
-                    if ($isCurrentUserVPAA && $formRequest->current_approver_id === $user->accnt_id) {
-                        $hrDepartment = Department::where('dept_code', 'HR')
+                    // For leave requests, route to HR
+                    $hrDepartment = Department::where(function ($query) {
+                        $query->where('dept_code', 'HR')
                             ->orWhere('dept_code', 'HRD')
                             ->orWhere('dept_code', 'HRMD')
-                            ->orWhere('dept_name', 'like', '%Human Resource%')
-                            ->first();
+                            ->orWhere('dept_name', 'LIKE', '%Human Resource%');
+                    })->first();
 
-                        if (!$hrDepartment) {
-                            DB::rollBack();
-                            Log::error('HR Department not found for VPAA to HR routing.', ['form_id' => $formRequest->form_id]);
-                            return back()->with('error', 'HR Department not found. Please contact your administrator.');
-                        }
-
+                    if ($hrDepartment) {
                         $hrApprover = User::where('department_id', $hrDepartment->department_id)
                             ->where('position', 'Head')
                             ->where('accessRole', 'Approver')
                             ->first();
 
-                        if (!$hrApprover) {
-                            DB::rollBack();
-                            Log::error('HR Department Head not found for VPAA to HR routing.', ['form_id' => $formRequest->form_id, 'hr_department_id' => $hrDepartment->department_id]);
-                            return back()->with('error', 'HR Department Head not found. Please contact your administrator.');
+                        if ($hrApprover) {
+                            $formRequest->current_approver_id = $hrApprover->accnt_id;
+                            $formRequest->to_department_id = $hrDepartment->department_id;
+                            \Log::info('Routing leave request to HR', [
+                                'hr_dept' => $hrDepartment->department_id,
+                                'hr_approver' => $hrApprover->accnt_id
+                            ]);
                         }
-
-                        $targetApproverId = $hrApprover->accnt_id;
-                        $newToDepartmentId = $hrDepartment->department_id; // Update to_department_id to HR
-                        Log::info('Leave request (from Dept Head) noted by VPAA, routed to HR.', [
-                            'form_id' => $formRequest->form_id,
-                            'vpaa_user_id' => $user->accnt_id,
-                            'hr_approver_id' => $targetApproverId
-                        ]);
-                    } else {
-                        // Case 2: Regular Department Head (current user, not VPAA) 'Noted' their staff's Leave request.
-                        // The request was 'Pending' for this Dept Head.
-                        // Or a Dept Head's leave request that fell back to HR in RequestController (already 'In Progress' for HR, this path not taken for 'Noted').
-                        // This path is for: Dept Head (current_approver_id) notes their staff's leave.
-                        $hrDepartment = Department::where('dept_code', 'HR')
-                            ->orWhere('dept_code', 'HRD')
-                            ->orWhere('dept_code', 'HRMD')
-                            ->orWhere('dept_name', 'like', '%Human Resource%')
-                            ->first();
-
-                        if (!$hrDepartment) {
-                            DB::rollBack();
-                            Log::error('HR Department not found for standard leave routing.', ['form_id' => $formRequest->form_id]);
-                            return back()->with('error', 'HR Department not found. Please contact your administrator.');
-                        }
-
-                        $hrApprover = User::where('department_id', $hrDepartment->department_id)
+                    }
+                } else {
+                    // For IOM or other requests, find department head of target department
+                    if ($formRequest->to_department_id) {
+                        $nextApprover = User::where('department_id', $formRequest->to_department_id)
                             ->where('position', 'Head')
                             ->where('accessRole', 'Approver')
                             ->first();
 
-                        if (!$hrApprover) {
-                            DB::rollBack();
-                            Log::error('HR Department Head not found for standard leave routing.', ['form_id' => $formRequest->form_id, 'hr_department_id' => $hrDepartment->department_id]);
-                            return back()->with('error', 'HR Department Head not found. Please contact your administrator.');
+                        if ($nextApprover) {
+                            $formRequest->current_approver_id = $nextApprover->accnt_id;
+                            \Log::info('Routing request to target department head', [
+                                'dept_id' => $formRequest->to_department_id,
+                                'approver_id' => $nextApprover->accnt_id
+                            ]);
                         }
-                        $targetApproverId = $hrApprover->accnt_id;
-                        $newToDepartmentId = $hrDepartment->department_id; // Update to_department_id to HR
-                        Log::info('Leave request (from Staff or fallback) noted by Dept Head, routed to HR.', [
-                            'form_id' => $formRequest->form_id,
-                            'noter_id' => $user->accnt_id,
-                            'hr_approver_id' => $targetApproverId
-                        ]);
                     }
-                } elseif ($formRequest->form_type === 'IOM') {
-                    // IOM 'Noted' by source Dept Head (current_approver_id)
-                    // Route to Target Department Head
-                    $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                        ->where('position', 'Head')
-                        ->where('accessRole', 'Approver')
-                        ->first();
-
-                    if (!$targetDepartmentHead) {
-                        DB::rollBack();
-                        Log::error('Target Department Head for IOM not found', [
-                            'form_id' => $formRequest->form_id,
-                            'target_dept_id' => $formRequest->to_department_id
-                        ]);
-                        return back()->with('error', 'Target Department Head for IOM not found. Please contact your administrator.');
-                    }
-                    $targetApproverId = $targetDepartmentHead->accnt_id;
-                    // $newToDepartmentId for IOM remains $formRequest->to_department_id (already correct from submission)
-                    Log::info('IOM request noted by source Dept Head, routed to target Dept Head.', [
-                        'form_id' => $formRequest->form_id,
-                        'noter_id' => $user->accnt_id,
-                        'target_approver_id' => $targetApproverId
-                    ]);
                 }
+            } elseif ($action === 'Approved') {
+                $formRequest->status = 'Approved';
+                $formRequest->current_approver_id = null;
+            } else { // Rejected
+                $formRequest->status = 'Rejected';
+                $formRequest->current_approver_id = null;
             }
 
-            // Update request status, current approver, and to_department_id
-            $formRequest->status = $newStatus;
-            $formRequest->current_approver_id = $targetApproverId;
-            // Update to_department_id if the status is now 'In Progress' (as it might have changed, e.g. for Leave to HR)
-            // or 'Pending' (though 'Pending' is not set in this part of the flow, good for robustness).
-            if ($newStatus === 'In Progress' || $newStatus === 'Pending') {
-                $formRequest->to_department_id = $newToDepartmentId;
-            }
             $formRequest->save();
-
             DB::commit();
-            return redirect()->route('approvals.index')->with('success', "Request has been {$action}.");
+
+            return redirect()->route('approvals.index')
+                ->with('success', "Request has been {$action} successfully.");
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Approval process error: ' . $e->getMessage(), [
-                'form_id' => $formRequest->form_id,
-                'action' => $action,
-                'user_id' => $user->accnt_id,
-                'exception' => $e
+            \Log::error('Error processing approval action:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
-            return back()->with('error', 'An error occurred while processing the request. Please contact your administrator.');
+            return back()->with('error', 'An error occurred while processing your action. Please try again.');
         }
     }
 

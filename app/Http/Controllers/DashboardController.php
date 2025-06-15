@@ -19,21 +19,21 @@ class DashboardController extends Controller
         try {
             $user = Auth::user();
             $departmentName = $user->department ? $user->department->dept_name : 'N/A';
-            
+
             // Get the active tab from the query parameter, default to 'all'
             $activeTab = $request->query('tab', 'all');
 
             // Base query for user's requests with eager loading
             $baseQuery = FormRequest::with(['iomDetails', 'leaveDetails', 'fromDepartment', 'toDepartment', 'approvals.approver'])
-                                ->where('requested_by', $user->accnt_id);
+                ->where('requested_by', $user->accnt_id);
 
             // Get counts for tabs first
             $counts = [
                 'all' => (clone $baseQuery)->count(),
                 'pending' => (clone $baseQuery)->whereIn('status', [
-                    'Pending', 
-                    'In Progress', 
-                    'Pending Department Head Approval', 
+                    'Pending',
+                    'In Progress',
+                    'Pending Department Head Approval',
                     'Pending Target Department Approval'
                 ])->count(),
                 'completed' => (clone $baseQuery)->where('status', 'Approved')->count(),
@@ -41,11 +41,11 @@ class DashboardController extends Controller
             ];
 
             // Apply filters based on active tab
-            $requests = match($activeTab) {
+            $requests = match ($activeTab) {
                 'pending' => (clone $baseQuery)->whereIn('status', [
-                    'Pending', 
-                    'In Progress', 
-                    'Pending Department Head Approval', 
+                    'Pending',
+                    'In Progress',
+                    'Pending Department Head Approval',
                     'Pending Target Department Approval'
                 ]),
                 'completed' => (clone $baseQuery)->where('status', 'Approved'),
@@ -70,9 +70,11 @@ class DashboardController extends Controller
             // Calculate average processing time for completed requests
             $completedRequests = (clone $baseQuery)
                 ->where('status', 'Approved')
-                ->with(['approvals' => function($query) {
-                    $query->whereIn('action', ['Approved', 'Submitted']);
-                }])
+                ->with([
+                    'approvals' => function ($query) {
+                        $query->whereIn('action', ['Approved', 'Submitted']);
+                    }
+                ])
                 ->get();
 
             $avgProcessingTime = 'N/A';
@@ -83,7 +85,7 @@ class DashboardController extends Controller
                 foreach ($completedRequests as $req) {
                     $submitted = $req->approvals->where('action', 'Submitted')->first();
                     $approved = $req->approvals->where('action', 'Approved')->first();
-                    
+
                     if ($submitted && $approved) {
                         $totalProcessingTime += $submitted->action_date->diffInHours($approved->action_date);
                         $completedCount++;
@@ -104,7 +106,7 @@ class DashboardController extends Controller
                 ->where('status', 'Approved')
                 ->count();
 
-            $approvalRate = $totalFinalized > 0 
+            $approvalRate = $totalFinalized > 0
                 ? round(($totalApproved / $totalFinalized) * 100)
                 : 0;
 

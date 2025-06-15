@@ -118,26 +118,12 @@ class User extends Authenticatable
             return false;
         }
 
-        $permissions = $this->approverPermissions; // Fetches the related ApproverPermission record
-
-        // VPAA: Can always 'Note' (act on 'Pending') if they are an Approver.
-        // For other statuses, depends on their specific ApproverPermission record.
+        // VPAA has full approval rights over any request in any state
         if ($this->position === 'VPAA') {
-            if ($status === 'Pending') {
-                return true; // VPAA (as Approver) can always act on 'Pending' requests assigned to them.
-            }
-            // For other statuses, VPAA needs explicit permissions from ApproverPermission table
-            if ($permissions) {
-                return match ($status) {
-                    // VPAA might handle 'In Progress' if, for example, a request is routed back to them,
-                    // or if they have a dual role like acting HR Head (though not the current scenario).
-                    // The seeder sets can_approve_in_progress to true for VPAA for flexibility.
-                    'In Progress' => $permissions->can_approve_in_progress,
-                    default => false,
-                };
-            }
-            return false; // No permission record and status is not 'Pending', so cannot act on other statuses.
+            return true;
         }
+
+        $permissions = $this->approverPermissions; // Fetches the related ApproverPermission record
 
         // Department Heads: Check permissions first, then fall back to general role-based ability.
         if ($this->position === 'Head') {

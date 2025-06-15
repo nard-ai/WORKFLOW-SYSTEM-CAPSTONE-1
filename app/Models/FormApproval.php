@@ -37,4 +37,9 @@ class FormApproval extends Model
         // Assuming your User model is App\Models\User and its primary key is accnt_id
         return $this->belongsTo(User::class, 'approver_id', 'accnt_id');
     }
+
+    public function signatureStyleApplied()
+    {
+        return $this->belongsTo(SignatureStyle::class, 'signature_style_id');
+    }
 }

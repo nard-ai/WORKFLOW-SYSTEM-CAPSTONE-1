@@ -72,7 +72,7 @@
                         <div class="p-6 text-gray-900 dark:text-gray-100">
                             <div class="flex justify-between items-center mb-4">
                                 <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Requests Awaiting Action</h3>
-                                @if(!$requestsToApprove->isEmpty() && Auth::user()->accessRole === 'Approver')
+                                @if(!$formRequests->isEmpty() && Auth::user()->accessRole === 'Approver')
                                     <div class="flex space-x-2">
                                         <button id="batchApproveBtn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm">
                                             Batch Approve
@@ -84,7 +84,7 @@
                                 @endif
                             </div>
 
-                            @if($requestsToApprove->isEmpty())
+                            @if($formRequests->isEmpty())
                                 <div class="text-center py-8">
                                     <p class="text-gray-500 dark:text-gray-400">No requests currently need your action.</p>
                                 </div>
@@ -107,7 +107,7 @@
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
-                                            @foreach($requestsToApprove as $request)
+                                            @foreach($formRequests as $request)
                                                 <tr>
                                                     <td class="px-6 py-4 whitespace-nowrap">
                                                         @if(Auth::user()->accessRole === 'Approver')
@@ -570,9 +570,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const canApprovePending = {{ Auth::user()->approverPermissions?->can_approve_pending ? 'true' : 'false' }};
         const canApproveInProgress = {{ Auth::user()->approverPermissions?->can_approve_in_progress ? 'true' : 'false' }};
         const isHead = {{ Auth::user()->position === 'Head' ? 'true' : 'false' }};
+        const isVPAA = {{ Auth::user()->position === 'VPAA' ? 'true' : 'false' }};
 
-        if (isHead) {
-            return { valid: true, message: '' }; // Department heads can approve all
+        // Both VPAA and Department Heads can approve all requests
+        if (isHead || isVPAA) {
+            return { valid: true, message: '' };
         }
 
         // Check if user has permission for all selected requests

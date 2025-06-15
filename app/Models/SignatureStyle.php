@@ -25,4 +25,4 @@ class SignatureStyle extends Model
     {
         return $this->belongsTo(User::class, 'user_id', 'accnt_id');
     }
-} 
+}

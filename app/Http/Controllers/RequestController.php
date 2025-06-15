@@ -211,9 +211,11 @@ class RequestController extends Controller
 
                 // Handle routing based on user role
                 if ($user->accessRole === 'Approver' && $user->position === 'Head') {
+                    Log::info('[Dept Head IOM] Processing IOM submission by Department Head.', ['user_id' => $user->accnt_id, 'to_department_id' => $formRequest->to_department_id]);
                     // Department Head is creating the request
                     if ($formRequest->to_department_id === $user->department_id) {
                         // If sending to own department, auto-approve
+                        Log::info('[Dept Head IOM] Sending to own department. Auto-approving.', ['department_id' => $user->department_id]);
                         $formRequest->status = 'Approved';
                         $formRequest->current_approver_id = null;
 
@@ -226,19 +228,50 @@ class RequestController extends Controller
                         ]);
                     } else {
                         // If sending to different department, auto-note and route to target
-                        $targetDepartmentHead = User::where('department_id', $formRequest->to_department_id)
-                            ->where('position', 'Head')
-                            ->where('accessRole', 'Approver')
+                        Log::info('[Dept Head IOM] Sending to a different department.', ['target_department_id' => $formRequest->to_department_id]);
+                        $vpaaDepartment = Department::where('dept_code', 'VPAA')
+                            ->orWhere('dept_name', 'Vice President for Academic Affairs')
                             ->first();
 
-                        if (!$targetDepartmentHead) {
-                            DB::rollBack();
-                            return redirect()->back()->with('error', 'Target department head not found. Request cannot be submitted.')->withInput();
+                        $targetApprover = null;
+                        Log::debug('[Dept Head IOM] Determining target approver.', [
+                            'from_user_id' => $user->accnt_id,
+                            'to_department_id' => $formRequest->to_department_id,
+                            'vpaa_dept_obj_found' => !is_null($vpaaDepartment),
+                            'vpaa_dept_id_if_found' => $vpaaDepartment ? $vpaaDepartment->department_id : null
+                        ]);
+
+                        if ($vpaaDepartment && $formRequest->to_department_id == $vpaaDepartment->department_id) {
+                            Log::info('[Dept Head IOM] Target department is VPAA. Looking for user with VPAA position.', ['target_dept_id' => $formRequest->to_department_id]);
+                            $targetApprover = User::where('department_id', $formRequest->to_department_id)
+                                ->where('position', 'VPAA')
+                                ->where('accessRole', 'Approver')
+                                ->first();
+
+                            if (!$targetApprover) {
+                                Log::error('[Dept Head IOM] User with VPAA position not found in VPAA department.', ['target_dept_id' => $formRequest->to_department_id]);
+                                DB::rollBack();
+                                return redirect()->back()->with('error', 'User with VPAA position not found in the VPAA department. Request cannot be submitted.')->withInput();
+                            }
+                            Log::info('[Dept Head IOM] VPAA position user found for routing.', ['approver_id' => $targetApprover->accnt_id]);
+                        } else {
+                            Log::info('[Dept Head IOM] Target is not VPAA (or VPAA dept not identified as target). Looking for user with Head position.', ['target_dept_id' => $formRequest->to_department_id]);
+                            $targetApprover = User::where('department_id', $formRequest->to_department_id)
+                                ->where('position', 'Head')
+                                ->where('accessRole', 'Approver')
+                                ->first();
+
+                            if (!$targetApprover) {
+                                Log::error('[Dept Head IOM] User with Head position not found in target department.', ['target_dept_id' => $formRequest->to_department_id]);
+                                DB::rollBack();
+                                return redirect()->back()->with('error', 'Target department head not found. Request cannot be submitted.')->withInput();
+                            }
+                            Log::info('[Dept Head IOM] Head position user found for routing.', ['approver_id' => $targetApprover->accnt_id]);
                         }
 
                         // Set status to In Progress and route to target department
                         $formRequest->status = 'In Progress';
-                        $formRequest->current_approver_id = $targetDepartmentHead->accnt_id;
+                        $formRequest->current_approver_id = $targetApprover->accnt_id;
 
                         // Create auto-note record with signature
                         FormApproval::create([
@@ -249,29 +282,49 @@ class RequestController extends Controller
                             'signature_data' => $request->signature ?? null,
                             'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
                         ]);
+                        Log::info('[Dept Head IOM] Successfully routed to target approver.', ['approver_id' => $targetApprover->accnt_id, 'status' => $formRequest->status]);
                     }
                 } else {
                     // Regular staff is creating the request
+                    Log::info('[Regular Staff IOM] Processing IOM submission by regular staff.', [
+                        'user_id' => $user->accnt_id,
+                        'user_department_id' => $user->department_id,
+                        'form_to_department_id' => $formRequest->to_department_id // This is the ultimate destination
+                    ]);
+
+                    // Staff's IOM always goes to their own department head first for noting.
                     $departmentHead = User::where('department_id', $user->department_id)
                         ->where('position', 'Head')
                         ->where('accessRole', 'Approver')
                         ->first();
 
                     if (!$departmentHead) {
+                        Log::error('[Regular Staff IOM] Submitting user\'s own department head not found. Cannot initiate IOM.', [
+                            'user_id' => $user->accnt_id,
+                            'user_department_id' => $user->department_id
+                        ]);
                         DB::rollBack();
-                        return redirect()->back()->with('error', 'Department head not found. Please contact your administrator.')->withInput();
+                        return redirect()->back()->with('error', 'Your department head could not be found. The request cannot be submitted. Please contact an administrator.')->withInput();
                     }
 
-                    $formRequest->status = 'Pending';
                     $formRequest->current_approver_id = $departmentHead->accnt_id;
+                    $formRequest->status = 'Pending'; // Initial status, awaiting action from their own Head.
 
-                    // Create submission record
+                    Log::info('[Regular Staff IOM] IOM routed to user\'s own department head for initial action.', [
+                        'form_id' => $formRequest->form_id,
+                        'current_approver_id' => $departmentHead->accnt_id,
+                        'status' => $formRequest->status,
+                        'final_target_department_id' => $formRequest->to_department_id // Log the final destination for clarity
+                    ]);
+
+                    // Create a "Submitted" record in FormApprovals by the requester
                     FormApproval::create([
                         'form_id' => $formRequest->form_id,
-                        'approver_id' => $user->accnt_id,
+                        'approver_id' => $user->accnt_id, // This is the staff member who created the request
                         'action' => 'Submitted',
-                        'action_date' => now()
+                        'action_date' => now(),
                     ]);
+                    Log::info('[Regular Staff IOM] "Submitted" record created for IOM.', ['form_id' => $formRequest->form_id, 'submitted_by_user_id' => $user->accnt_id]);
                 }
 
                 $formRequest->save();

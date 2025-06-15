@@ -162,18 +162,19 @@
                             <h3 class="text-lg font-semibold mb-4">Signatures</h3>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 @foreach ($formRequest->approvals->sortBy('action_date') as $approval)
-                                    @if ($approval->action !== 'Submitted' && ($approval->signature_data || ($approval->approver && $approval->approver->signatureStyle) || $approval->signature_name))
+                                    @if ($approval->action !== 'Submitted' && ($approval->signature_data || ($approval->approver && ($approval->signatureStyleApplied || $approval->approver->signatureStyle)) || $approval->signature_name))
                                         @php
                                             $approverUser = $approval->approver;
-                                            $signatureStyle = $approverUser ? $approverUser->signatureStyle : null;
+                                            // Prioritize the style used at the time of approval
+                                            $signatureStyleToApply = $approval->signatureStyleApplied ?: ($approverUser ? $approverUser->signatureStyle : null);
                                             $displayName = $approval->signature_name ?: ($approverUser && $approverUser->employeeInfo ? $approverUser->employeeInfo->FirstName . ' ' . $approverUser->employeeInfo->LastName : 'N/A');
                                         @endphp
                                         <div class="border rounded-lg p-4 flex flex-col items-center justify-between h-48">
                                             <div class="flex-grow flex items-center justify-center w-full mb-2"> 
                                                 @if ($approval->signature_data)
                                                     <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="max-w-full max-h-24 object-contain">
-                                                @elseif ($approverUser && $signatureStyle)
-                                                    <div class="text-2xl font-signature px-2 text-center" style="font-family: '{{ $signatureStyle->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
+                                                @elseif ($signatureStyleToApply) {{-- Use the determined style --}}
+                                                    <div class="text-2xl font-signature px-2 text-center" style="font-family: '{{ $signatureStyleToApply->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
                                                         {{ strtoupper($displayName) }}
                                                     </div>
                                                 @elseif ($approverUser) {{-- Fallback to plain text if no signature style but user exists and name is available --}}
