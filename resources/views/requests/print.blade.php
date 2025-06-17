@@ -118,6 +118,12 @@
             font-size: 14px;
             color: black;
             text-transform: uppercase;
+            white-space: nowrap; 
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+            line-height: 1.2;
+            letter-spacing: 0.5px;
         }
         .signature-image {
             height: 30px;

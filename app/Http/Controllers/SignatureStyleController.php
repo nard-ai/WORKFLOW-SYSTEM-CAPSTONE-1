@@ -10,6 +10,6 @@ class SignatureStyleController extends Controller
     public function index(): JsonResponse
     {
         $styles = SignatureStyle::all();
-        return response()->json($styles);
+        return response()->json(['styles' => $styles]);
     }
-} 
+}

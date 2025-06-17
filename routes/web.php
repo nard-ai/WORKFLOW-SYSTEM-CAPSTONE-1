@@ -10,6 +10,12 @@ use App\Http\Controllers\SignatureStyleController;
 use App\Http\Controllers\AdminController; // Import AdminController
 use Illuminate\Support\Facades\Log;
 
+// Include debug routes in development environment only
+if (app()->environment('local')) {
+    include __DIR__ . '/debug-routes.php';
+    include __DIR__ . '/debug-department-routes.php';
+}
+
 Route::get('/', function () {
     if (auth()->check()) {
         return redirect()->route('dashboard');

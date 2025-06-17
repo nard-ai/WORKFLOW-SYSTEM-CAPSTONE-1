@@ -38,7 +38,12 @@ class RequestController extends Controller
      */
     public function create(): View
     {
-        $departments = Department::orderBy('dept_name')->get();
+        // Get all departments except Administration
+        $departments = Department::where(function ($query) {
+            $query->where('dept_name', '!=', 'Administration')
+                ->where('dept_code', '!=', 'ADMIN');
+        })->orderBy('dept_name')->get();
+
         // Pass old input to the view if available (e.g., after a validation error on confirmation page)
         $formData = session()->get('form_data_for_confirmation_edit', []);
         $todayPHT = now()->tz(config('app.timezone'))->toDateString(); // Get current date in PHT
@@ -53,13 +58,31 @@ class RequestController extends Controller
         $requestType = $request->input('request_type');
         $user = Auth::user();
 
+        // Custom validation messages for better user experience
+        $customMessages = [
+            'iom_to_department_id.required' => 'Please select a department for your request.',
+            'iom_to_department_id.integer' => 'The selected department is invalid.',
+            'iom_to_department_id.exists' => 'The selected department does not exist in our records.',
+        ];
+
         $allRules = [
             'request_type' => ['required', 'string', Rule::in(['IOM', 'Leave'])],
         ];
 
         if ($requestType === 'IOM') {
             $allRules = array_merge($allRules, [
-                'iom_to_department_id' => 'required|integer|exists:tb_department,department_id',
+                'iom_to_department_id' => [
+                    'required',
+                    'integer',
+                    'exists:tb_department,department_id',
+                    function ($attribute, $value, $fail) {
+                        // Check if the department is Administration
+                        $department = Department::find($value);
+                        if ($department && ($department->dept_name === 'Administration' || $department->dept_code === 'ADMIN')) {
+                            $fail('Please select a valid department. The Administration department is not available for IOM requests.');
+                        }
+                    },
+                ],
                 'iom_re' => 'required|string|max:255',
                 'iom_priority' => ['required', Rule::in(['Routine', 'Urgent', 'Rush'])],
                 'iom_purpose' => ['required', Rule::in(['For Information', 'For Action', 'For Signature', 'For Comments', 'For Approval', 'Request', 'Others'])],
@@ -90,7 +113,7 @@ class RequestController extends Controller
         }
         // If requestType is invalid or empty, the 'request_type' rule in $allRules will catch it.
 
-        $validatedData = $request->validate($allRules);
+        $validatedData = $request->validate($allRules, $customMessages);
 
         // Flash all validated data to the session for the confirmation page
         session()->flash('form_data_for_confirmation', $validatedData);
@@ -114,8 +137,11 @@ class RequestController extends Controller
         $user = Auth::user();
         $isDepartmentHead = $user->accessRole === 'Approver' && $user->position === 'Head';
 
-        // To display department names instead of IDs
-        $departments = Department::orderBy('dept_name')->get()->keyBy('department_id');
+        // To display department names instead of IDs (excluding Administration)
+        $departments = Department::where(function ($query) {
+            $query->where('dept_name', '!=', 'Administration')
+                ->where('dept_code', '!=', 'ADMIN');
+        })->orderBy('dept_name')->get()->keyBy('department_id');
         $fromDepartmentName = $user->department ? $user->department->dept_name : 'N/A';
 
         // Re-flash the data for the next request
@@ -209,13 +235,37 @@ class RequestController extends Controller
                     'body' => $iomValidatedData['iom_description'],
                 ]);
 
-                // Handle routing based on user role
-                if ($user->accessRole === 'Approver' && $user->position === 'Head') {
-                    Log::info('[Dept Head IOM] Processing IOM submission by Department Head.', ['user_id' => $user->accnt_id, 'to_department_id' => $formRequest->to_department_id]);
+                // Handle routing based on user role - first get the user's department
+                $userDepartment = Department::find($user->department_id);
+                $isVPAAUser = $user->position === 'VPAA' && $userDepartment &&
+                    (strtoupper($userDepartment->dept_code) === 'VPAA' ||
+                        stripos($userDepartment->dept_name, 'Vice President for Academic Affairs') !== false);
+
+                Log::info('[IOM Submission] User position and department check', [
+                    'user_id' => $user->accnt_id,
+                    'position' => $user->position,
+                    'department_id' => $user->department_id,
+                    'department_code' => $userDepartment ? $userDepartment->dept_code : 'Unknown',
+                    'is_vpaa_user' => $isVPAAUser
+                ]);
+
+                if ($user->accessRole === 'Approver' && ($user->position === 'Head' || $isVPAAUser)) {
+                    // Check if this is a VPAA user from VPAA department
+                    $isVPAAUser = $user->position === 'VPAA' && $user->department && strtoupper($user->department->dept_code) === 'VPAA';
+
+                    if ($isVPAAUser) {
+                        Log::info('[VPAA Position IOM] Processing IOM submission by VPAA.', ['user_id' => $user->accnt_id, 'to_department_id' => $formRequest->to_department_id]);
+                    } else {
+                        Log::info('[Dept Head IOM] Processing IOM submission by Department Head.', ['user_id' => $user->accnt_id, 'to_department_id' => $formRequest->to_department_id]);
+                    }
                     // Department Head is creating the request
                     if ($formRequest->to_department_id === $user->department_id) {
                         // If sending to own department, auto-approve
-                        Log::info('[Dept Head IOM] Sending to own department. Auto-approving.', ['department_id' => $user->department_id]);
+                        if ($isVPAAUser) {
+                            Log::info('[VPAA Position IOM] Sending to own department. Auto-approving.', ['department_id' => $user->department_id]);
+                        } else {
+                            Log::info('[Dept Head IOM] Sending to own department. Auto-approving.', ['department_id' => $user->department_id]);
+                        }
                         $formRequest->status = 'Approved';
                         $formRequest->current_approver_id = null;
 
@@ -228,7 +278,11 @@ class RequestController extends Controller
                         ]);
                     } else {
                         // If sending to different department, auto-note and route to target
-                        Log::info('[Dept Head IOM] Sending to a different department.', ['target_department_id' => $formRequest->to_department_id]);
+                        if ($isVPAAUser) {
+                            Log::info('[VPAA Position IOM] Sending to a different department.', ['target_department_id' => $formRequest->to_department_id]);
+                        } else {
+                            Log::info('[Dept Head IOM] Sending to a different department.', ['target_department_id' => $formRequest->to_department_id]);
+                        }
                         $vpaaDepartment = Department::where('dept_code', 'VPAA')
                             ->orWhere('dept_name', 'Vice President for Academic Affairs')
                             ->first();
@@ -273,16 +327,21 @@ class RequestController extends Controller
                         $formRequest->status = 'In Progress';
                         $formRequest->current_approver_id = $targetApprover->accnt_id;
 
-                        // Create auto-note record with signature
+                        // Create auto-note record with signature and signature style
                         FormApproval::create([
                             'form_id' => $formRequest->form_id,
                             'approver_id' => $user->accnt_id,
                             'action' => 'Noted',
                             'action_date' => now(),
                             'signature_data' => $request->signature ?? null,
-                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
+                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                            'signature_style_id' => $request->signatureStyle
                         ]);
-                        Log::info('[Dept Head IOM] Successfully routed to target approver.', ['approver_id' => $targetApprover->accnt_id, 'status' => $formRequest->status]);
+                        if ($isVPAAUser) {
+                            Log::info('[VPAA Position IOM] Successfully routed to target approver.', ['approver_id' => $targetApprover->accnt_id, 'status' => $formRequest->status]);
+                        } else {
+                            Log::info('[Dept Head IOM] Successfully routed to target approver.', ['approver_id' => $targetApprover->accnt_id, 'status' => $formRequest->status]);
+                        }
                     }
                 } else {
                     // Regular staff is creating the request
@@ -292,16 +351,51 @@ class RequestController extends Controller
                         'form_to_department_id' => $formRequest->to_department_id // This is the ultimate destination
                     ]);
 
-                    // Staff's IOM always goes to their own department head first for noting.
-                    $departmentHead = User::where('department_id', $user->department_id)
-                        ->where('position', 'Head')
-                        ->where('accessRole', 'Approver')
-                        ->first();
+                    // Check if user is from VPAA department
+                    $userDepartment = Department::find($user->department_id);
+                    $isVPAADepartment = $userDepartment && (
+                        strtoupper($userDepartment->dept_code) === 'VPAA' ||
+                        stripos($userDepartment->dept_name, 'Vice President for Academic Affairs') !== false
+                    );
+
+                    Log::info('[Regular Staff IOM] Checking department type for proper routing', [
+                        'user_department_id' => $user->department_id,
+                        'dept_code' => $userDepartment ? $userDepartment->dept_code : 'Unknown',
+                        'is_vpaa_department' => $isVPAADepartment
+                    ]);
+
+                    // Staff's IOM goes to their department head (or VPAA if in VPAA department) for noting
+                    $departmentHead = null;
+
+                    if ($isVPAADepartment) {
+                        // For VPAA department, look for VPAA position first
+                        $departmentHead = User::where('department_id', $user->department_id)
+                            ->where('position', 'VPAA')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+
+                        Log::info('[Regular Staff IOM] VPAA department - looking for VPAA position', [
+                            'vpaa_position_found' => !is_null($departmentHead)
+                        ]);
+                    }
+
+                    // If not found or not VPAA department, look for Head position
+                    if (!$departmentHead) {
+                        $departmentHead = User::where('department_id', $user->department_id)
+                            ->where('position', 'Head')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+
+                        Log::info('[Regular Staff IOM] Looking for Head position', [
+                            'head_position_found' => !is_null($departmentHead)
+                        ]);
+                    }
 
                     if (!$departmentHead) {
-                        Log::error('[Regular Staff IOM] Submitting user\'s own department head not found. Cannot initiate IOM.', [
+                        Log::error('[Regular Staff IOM] Department approver not found. Cannot initiate IOM.', [
                             'user_id' => $user->accnt_id,
-                            'user_department_id' => $user->department_id
+                            'user_department_id' => $user->department_id,
+                            'is_vpaa_department' => $isVPAADepartment
                         ]);
                         DB::rollBack();
                         return redirect()->back()->with('error', 'Your department head could not be found. The request cannot be submitted. Please contact an administrator.')->withInput();
@@ -355,7 +449,21 @@ class RequestController extends Controller
                     'description' => $leaveValidatedData['leave_description'],
                 ]);
 
-                if ($user->accessRole === 'Approver' && $user->position === 'Head') {
+                // Get user department for VPAA check
+                $userDepartment = Department::find($user->department_id);
+                $isVPAAUser = $user->position === 'VPAA' && $userDepartment &&
+                    (strtoupper($userDepartment->dept_code) === 'VPAA' ||
+                        stripos($userDepartment->dept_name, 'Vice President for Academic Affairs') !== false);
+
+                Log::info('[Leave Submission] User position and department check', [
+                    'user_id' => $user->accnt_id,
+                    'position' => $user->position,
+                    'department_id' => $user->department_id,
+                    'department_code' => $userDepartment ? $userDepartment->dept_code : 'Unknown',
+                    'is_vpaa_user' => $isVPAAUser
+                ]);
+
+                if ($user->accessRole === 'Approver' && ($user->position === 'Head' || $isVPAAUser)) {
                     // Department Head is creating a Leave request.
                     // New logic: Route to VPAA first.
                     $vpaaDepartment = Department::where('dept_code', 'VPAA')
@@ -415,26 +523,67 @@ class RequestController extends Controller
                         $formRequest->current_approver_id = $hrApprover->accnt_id;
                         $formRequest->to_department_id = $hrDepartment->department_id;
 
-                        // Create auto-note record for the requesting Department Head (self-noting)
+                        // Create auto-note record for the requesting Department Head (self-noting) with signature style
                         FormApproval::create([
                             'form_id' => $formRequest->form_id,
                             'approver_id' => $user->accnt_id,
                             'action' => 'Noted',
                             'action_date' => now(),
-                            'signature_data' => $request->signature ?? null, // Assuming signature might be part of form
-                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName
+                            'signature_data' => $request->signature ?? null,
+                            'signature_name' => $user->employeeInfo->FirstName . ' ' . $user->employeeInfo->LastName,
+                            'signature_style_id' => $request->input('signatureStyle')
                         ]);
                     }
                 } else {
                     // Regular staff is creating the request
-                    $departmentHead = User::where('department_id', $user->department_id)
-                        ->where('position', 'Head')
-                        ->where('accessRole', 'Approver')
-                        ->first();
+                    // Check if user is from VPAA department
+                    $userDepartment = Department::find($user->department_id);
+                    $isVPAADepartment = $userDepartment && (
+                        strtoupper($userDepartment->dept_code) === 'VPAA' ||
+                        stripos($userDepartment->dept_name, 'Vice President for Academic Affairs') !== false
+                    );
+
+                    Log::info('[Regular Staff Leave] Checking department type for proper routing', [
+                        'user_department_id' => $user->department_id,
+                        'dept_code' => $userDepartment ? $userDepartment->dept_code : 'Unknown',
+                        'is_vpaa_department' => $isVPAADepartment
+                    ]);
+
+                    // Staff's Leave request goes to their department head (or VPAA if in VPAA department) for noting
+                    $departmentHead = null;
+
+                    if ($isVPAADepartment) {
+                        // For VPAA department, look for VPAA position first
+                        $departmentHead = User::where('department_id', $user->department_id)
+                            ->where('position', 'VPAA')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+
+                        Log::info('[Regular Staff Leave] VPAA department - looking for VPAA position', [
+                            'vpaa_position_found' => !is_null($departmentHead)
+                        ]);
+                    }
+
+                    // If not found or not VPAA department, look for Head position
+                    if (!$departmentHead) {
+                        $departmentHead = User::where('department_id', $user->department_id)
+                            ->where('position', 'Head')
+                            ->where('accessRole', 'Approver')
+                            ->first();
+
+                        Log::info('[Regular Staff Leave] Looking for Head position', [
+                            'head_position_found' => !is_null($departmentHead)
+                        ]);
+                    }
 
                     if (!$departmentHead) {
+                        Log::error('[Regular Staff Leave] Department approver not found. Cannot initiate Leave request.', [
+                            'user_id' => $user->accnt_id,
+                            'user_department_id' => $user->department_id,
+                            'is_vpaa_department' => $isVPAADepartment
+                        ]);
                         DB::rollBack();
-                        return redirect()->back()->with('error', 'Department Head not found. Please contact your administrator.')->withInput();
+                        return redirect()->back()->with('error', 'Your department head could not be found. Please contact your administrator.')->withInput();
                     }
 
                     // Set initial status and route to department head

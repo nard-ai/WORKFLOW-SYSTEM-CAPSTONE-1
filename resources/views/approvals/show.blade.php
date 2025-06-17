@@ -7,6 +7,29 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            @if (session('error'))
+                <div class="mb-4 px-4 py-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                    {{ session('error') }}
+                </div>
+            @endif
+            
+            @if (session('success'))
+                <div class="mb-4 px-4 py-3 bg-green-100 border border-green-400 text-green-700 rounded-lg">
+                    {{ session('success') }}
+                </div>
+            @endif
+            
+            @if ($errors->any())
+                <div class="mb-4 px-4 py-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                    <div class="font-medium">Please correct the following errors:</div>
+                    <ul class="mt-2 list-disc list-inside text-sm">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+            
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 md:p-8 text-gray-900 dark:text-gray-100 space-y-6">
                     {{-- Request Timeline --}}
@@ -88,9 +111,13 @@
                                         </div>
                                         <div class="ml-6">
                                             <div class="font-semibold text-gray-900 dark:text-gray-100">Currently {{ $formRequest->status }}</div>
-                                            @if($currentApprover = App\Models\User::find($formRequest->current_approver_id))
+                                            @if($currentApprover = App\Models\User::with('employeeInfo', 'department')->find($formRequest->current_approver_id))
                                                 <div class="text-sm text-gray-500 dark:text-gray-400">
-                                                    Awaiting action from {{ $currentApprover->username }}
+                                                    @if($currentApprover->position === 'VPAA' || ($currentApprover->department && $currentApprover->department->dept_code === 'VPAA'))
+                                                        Awaiting action from VPAA-2025-0050
+                                                    @else
+                                                        Awaiting action from {{ $currentApprover->username }}
+                                                    @endif
                                                 </div>
                                             @endif
                                         </div>
@@ -173,16 +200,18 @@
                                             <div class="flex-grow flex items-center justify-center w-full mb-2"> 
                                                 @if ($approval->signature_data)
                                                     <img src="{{ $approval->signature_data }}" alt="Digital Signature" class="max-w-full max-h-24 object-contain">
-                                                @elseif ($signatureStyleToApply) {{-- Use the determined style --}}
-                                                    <div class="text-2xl font-signature px-2 text-center" style="font-family: '{{ $signatureStyleToApply->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
+                                                @elseif ($approval->signatureStyleApplied) {{-- First check the signature style applied at the time --}}
+                                                    <div class="text-2xl font-signature px-6 text-center" style="font-family: '{{ $approval->signatureStyleApplied->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; letter-spacing: 0.5px; padding: 12px 0;">
                                                         {{ strtoupper($displayName) }}
                                                     </div>
-                                                @elseif ($approverUser) {{-- Fallback to plain text if no signature style but user exists and name is available --}}
-                                                    <div class="text-xl px-2 text-center" style="display: flex; align-items: center; justify-content: center; width: 100%; word-break: break-word; line-height: 1.2;">
+                                                @elseif ($approverUser && $approverUser->signatureStyle) {{-- Fallback to user's current style --}}
+                                                    <div class="text-2xl font-signature px-6 text-center" style="font-family: '{{ $approverUser->signatureStyle->font_family }}', cursive; display: flex; align-items: center; justify-content: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; letter-spacing: 0.5px; padding: 12px 0;">
                                                         {{ strtoupper($displayName) }}
                                                     </div>
-                                                @else
-                                                    <div class="text-gray-400 italic">Signature not available</div>
+                                                @else {{-- Final fallback to Dancing Script --}}
+                                                    <div class="text-2xl font-signature px-6 text-center" style="font-family: 'Dancing Script', cursive; display: flex; align-items: center; justify-content: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; letter-spacing: 0.5px; padding: 12px 0;">
+                                                        {{ strtoupper($displayName) }}
+                                                    </div>
                                                 @endif
                                             </div>
                                             <div class="text-center">
@@ -467,35 +496,63 @@
 
     // Load signature styles
     function loadSignatureStyles() {
-        fetch('{{ route("signature-styles.index") }}')
-            .then(response => response.json())
-            .then(data => {
-                const container = document.getElementById('signatureStyles');
-                container.innerHTML = '';
-                data.forEach(style => {
-                    const div = document.createElement('div');
-                    div.className = 'signature-style';
-                    
-                    const signatureText = document.createElement('div');
-                    signatureText.className = 'preview-text';
-                    signatureText.style.fontFamily = style.font_family;
-                    signatureText.textContent = 'Your Signature';
-                    
-                    const styleName = document.createElement('div');
-                    styleName.className = 'style-name';
-                    styleName.textContent = style.name;
-                    
-                    div.appendChild(signatureText);
-                    div.appendChild(styleName);
-                    div.onclick = () => selectStyle(style.id, style.font_family, div);
-                    container.appendChild(div);
-                });
+        // Clear the container first
+        const stylesContainer = document.getElementById('signatureStyles');
+        stylesContainer.innerHTML = '';
+        console.log('Loading signature styles...');
 
-                // Update previews with current name if exists
-                const currentName = document.getElementById('name').value;
-                if (currentName) {
-                    updateAllPreviews(currentName);
+        fetch('{{ route("signature-styles.index") }}')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to load signature styles');
                 }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Signature styles response:', data);
+                
+                // Check if data.styles exists and is an array
+                if (!data.styles || !Array.isArray(data.styles)) {
+                    throw new Error('Invalid signature styles data format');
+                }
+                
+                console.log('Signature styles loaded:', data.styles.length);
+                
+                if (data.styles.length === 0) {
+                    stylesContainer.innerHTML = '<p class="text-center text-gray-500">No signature styles available</p>';
+                    return;
+                }
+                
+                data.styles.forEach(style => {
+                    const styleElement = document.createElement('div');
+                    styleElement.className = 'signature-style border rounded-lg p-3 text-center cursor-pointer hover:border-blue-500';
+                    styleElement.dataset.styleId = style.id;
+                    
+                    // Create the preview element with the specific font
+                    const previewElement = document.createElement('div');
+                    previewElement.className = 'preview-text text-xl';
+                    previewElement.style.fontFamily = style.font_family;
+                    previewElement.textContent = document.getElementById('name').value.toUpperCase() || 'Your Signature';
+                    
+                    // Add style name below the preview
+                    const nameElement = document.createElement('div');
+                    nameElement.className = 'text-sm text-gray-600 mt-1';
+                    nameElement.textContent = style.name;
+                    
+                    styleElement.appendChild(previewElement);
+                    styleElement.appendChild(nameElement);
+                    
+                    // Add click event to select this style
+                    styleElement.addEventListener('click', function() {
+                        selectStyle(style.id, style.font_family, this);
+                    });
+                    
+                    stylesContainer.appendChild(styleElement);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading signature styles:', error);
+                stylesContainer.innerHTML = `<p class="text-center text-red-500">Error loading signature styles: ${error.message}</p>`;
             });
     }
 
@@ -514,16 +571,35 @@
             case 'reject':
                 modalTitle.textContent = 'Reject Request';
                 formAction = '{{ route("approvals.reject", $formRequest->form_id) }}';
+                // Clear any previous comment to ensure user enters a fresh rejection reason
+                comments.value = '';
                 break;
         }
         
+        // For reject action, always show the comment required message and focus on comments
         commentRequired.classList.toggle('hidden', action !== 'reject');
         commentError.classList.add('hidden');
         comments.classList.remove('border-red-500');
         
+        if (action === 'reject') {
+            setTimeout(() => comments.focus(), 300);
+        }
+        
         // Set the user's full name automatically
         const fullName = '{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}';
         document.getElementById('name').value = fullName.toUpperCase();
+        
+        // Reset selected style
+        selectedStyle = null;
+        document.querySelectorAll('.signature-style').forEach(div => {
+            div.classList.remove('selected');
+        });
+        
+        // Log for debugging
+        console.log(`Opening modal for ${action} action`, {
+            formAction: formAction,
+            fullName: fullName,
+        });
         
         actionForm.action = formAction;
         actionModal.classList.remove('hidden');
@@ -542,24 +618,74 @@
     }
 
     actionForm.addEventListener('submit', function(e) {
+        // Debug information to help troubleshoot
+        console.log('Form submission attempted', {
+            action: currentAction,
+            hasComments: !!comments.value.trim(),
+            hasName: !!document.getElementById('name').value.trim(),
+            hasSignatureStyle: !!selectedStyle,
+            formAction: this.action
+        });
+        
         if (currentAction === 'reject' && !comments.value.trim()) {
             e.preventDefault();
             commentError.classList.remove('hidden');
             comments.classList.add('border-red-500');
             comments.focus();
+            console.log('Reject submission blocked: Missing comments');
             return;
         }
         
-        if (!selectedStyle || !document.getElementById('name').value.trim()) {
+        // For rejection, we need to ensure all fields are filled properly
+        if (currentAction === 'reject') {
+            // First check signature style
+            if (!selectedStyle) {
+                e.preventDefault();
+                alert('Please select a signature style before rejecting the request.');
+                console.log('Rejection blocked: No signature style selected');
+                return;
+            }
+            
+            // Then check the name
+            if (!document.getElementById('name').value.trim()) {
+                e.preventDefault();
+                alert('Please enter your name before rejecting the request.');
+                document.getElementById('name').focus();
+                console.log('Rejection blocked: No name entered');
+                return;
+            }
+        } else if (!selectedStyle) {
             e.preventDefault();
-            alert('Please enter your name and select a signature style.');
+            alert('Please select a signature style before submitting.');
+            console.log('Submission blocked: No signature style selected');
+            return;
+        } else if (!document.getElementById('name').value.trim()) {
+            e.preventDefault();
+            alert('Please enter your name before submitting.');
+            document.getElementById('name').focus();
+            console.log('Submission blocked: No name entered');
             return;
         }
 
-        // Convert signature text to image (already in uppercase)
-        const name = document.getElementById('name').value;
-        const signatureImage = textToImage(name, selectedStyle.fontFamily);
-        document.getElementById('signature').value = signatureImage;
+        try {
+            // Convert signature text to image (already in uppercase)
+            const name = document.getElementById('name').value;
+            // Check if selectedStyle exists and has the fontFamily property
+            if (!selectedStyle || typeof selectedStyle.fontFamily !== 'string') {
+                throw new Error('Invalid signature style selected');
+            }
+            const signatureImage = textToImage(name, selectedStyle.fontFamily);
+            document.getElementById('signature').value = signatureImage;
+            console.log('Signature generated successfully');
+        } catch (error) {
+            e.preventDefault();
+            console.error('Error generating signature:', error);
+            alert('There was a problem creating your signature. Please try again.');
+            return;
+        }
+        
+        console.log('Form submission proceeding');
+        // Allow the form to submit
     });
 
     comments.addEventListener('input', function() {
@@ -578,18 +704,39 @@
     }
 
     function selectStyle(styleId, fontFamily, element) {
+        console.log('Signature style selected:', { styleId, fontFamily });
+        
         // Update selection state
         document.querySelectorAll('.signature-style').forEach(div => {
             div.classList.remove('selected');
         });
         
+        // Check that we have valid inputs
+        if (!styleId || !fontFamily || !element) {
+            console.error('Invalid style selection inputs:', { styleId, fontFamily, element });
+            return;
+        }
+        
+        // Store the selected style information
         selectedStyle = { id: styleId, fontFamily: fontFamily, element: element };
         element.classList.add('selected');
-        document.getElementById('signatureStyle').value = styleId;
+        
+        // Update the hidden input
+        const styleInput = document.getElementById('signatureStyle');
+        if (styleInput) {
+            styleInput.value = styleId;
+        }
         
         // Update signature preview with uppercase name
         const name = document.getElementById('name').value.toUpperCase();
         updateAllPreviews(name);
+        
+        // Log successful selection
+        console.log('Style selection complete:', { 
+            selectedId: selectedStyle.id, 
+            selectedFont: selectedStyle.fontFamily,
+            inputValue: document.getElementById('signatureStyle').value
+        });
     }
 
     // Name input handler - updates all previews dynamically and ensures uppercase

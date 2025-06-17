@@ -301,36 +301,62 @@ let selectedFontFamily = null;
 
 // Function to convert text to base64 image
 function textToImage(text, fontFamily) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    if (!text || !fontFamily) {
+        console.error('Missing required parameters for textToImage:', { text, fontFamily });
+        throw new Error('Missing text or font family for signature generation');
+    }
     
-    // Set canvas size
-    canvas.width = 600;
-    canvas.height = 150;
-    
-    // Configure text style
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1f2937';
-    
-    // Calculate font size based on text length
-    const maxFontSize = 72;
-    const minFontSize = 48;
-    const calculatedSize = Math.max(minFontSize, Math.min(maxFontSize, 800 / text.length));
-    
-    ctx.font = `${calculatedSize}px ${fontFamily}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Add subtle shadow
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-    ctx.shadowBlur = 2;
-    ctx.shadowOffsetY = 2;
-    
-    // Draw text
-    ctx.fillText(text.toUpperCase(), canvas.width / 2, canvas.height / 2);
-    
-    return canvas.toDataURL('image/png');
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+            console.error('Failed to get canvas context');
+            throw new Error('Browser does not support canvas');
+        }
+        
+        // Set canvas size
+        canvas.width = 600;
+        canvas.height = 150;
+        
+        // Configure text style
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1f2937';
+        
+        // Calculate font size based on text length
+        const maxFontSize = 72;
+        const minFontSize = 48;
+        const calculatedSize = Math.max(minFontSize, Math.min(maxFontSize, 800 / text.length));
+        
+        // Ensure text is uppercase before drawing
+        const uppercaseText = text.toUpperCase();
+        
+        // Use a fallback font if the specified font fails
+        const fallbackFont = "cursive, serif";
+        ctx.font = `${calculatedSize}px ${fontFamily}, ${fallbackFont}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Add subtle shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+        ctx.shadowBlur = 2;
+        ctx.shadowOffsetY = 2;
+        
+        // Draw text
+        ctx.fillText(uppercaseText, canvas.width / 2, canvas.height / 2);
+        
+        // Try to generate the data URL
+        try {
+            return canvas.toDataURL('image/png');
+        } catch (e) {
+            console.error('Error generating canvas data URL:', e);
+            throw new Error('Failed to generate signature image');
+        }
+    } catch (error) {
+        console.error('Error in textToImage function:', error);
+        throw error;
+    }
 }
 
 function showToast(type, message) {
@@ -343,14 +369,36 @@ function showToast(type, message) {
 }
 
 window.submitBatchAction = function() {
+    console.log('Starting batch action submission...');
+    
     const selectedRequests = Array.from(document.querySelectorAll('.request-checkbox:checked')).map(cb => cb.value);
     const action = document.getElementById('batchAction').value;
     const comment = document.getElementById('batchComment').value;
-    const fullName = document.getElementById('fullName').value;
+    const fullName = document.getElementById('fullName').value.toUpperCase();
     
-    // Get selected signature style
+    console.log('Batch action parameters:', {
+        action: action,
+        selectedRequests: selectedRequests.length,
+        hasComment: !!comment.trim(),
+        fullName: fullName,
+        selectedSignatureId: selectedSignatureId,
+        selectedFontFamily: selectedFontFamily
+    });
+    
+    // Validate selected requests
+    if (selectedRequests.length === 0) {
+        alert('Please select at least one request to process.');
+        return;
+    }
+    
+    // Get selected signature style - make sure the selection is still valid
     const selectedStyle = document.querySelector('.signature-style.selected');
-    if (!selectedStyle) {
+    if (!selectedStyle || !selectedSignatureId || !selectedFontFamily) {
+        console.error('Missing signature style information:', {
+            selectedStyle: !!selectedStyle,
+            selectedSignatureId: selectedSignatureId,
+            selectedFontFamily: selectedFontFamily
+        });
         document.getElementById('signatureError').classList.remove('hidden');
         return;
     }
@@ -362,48 +410,67 @@ window.submitBatchAction = function() {
         return;
     }
 
-    // Generate signature image
-    const signatureImage = textToImage(fullName, selectedFontFamily);
-
-    // Create form data
-    const formData = {
-        selected_requests: selectedRequests,
-        action: action,
-        comment: comment,
-        signature_style_id: selectedSignatureId,
-        signature: signatureImage
-    };
-
-    // Send request
-    fetch('{{ route("approvals.batch") }}', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-        },
-        body: JSON.stringify(formData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast('success', data.message);
-            closeBatchModal();
-            // Reload the page after a short delay
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
-        } else {
-            showToast('error', data.message);
-            if (data.errors) {
-                const errorMessages = Object.values(data.errors).flat().join('\n');
-                console.error(errorMessages);
+    try {
+        // Generate signature image
+        const signatureImage = textToImage(fullName, selectedFontFamily);
+        
+        // Create form data
+        const formData = {
+            selected_requests: selectedRequests,
+            action: action,
+            comment: comment,
+            signature_style_id: selectedSignatureId,
+            signature: signatureImage
+        };
+        
+        console.log('Submitting batch action with valid data');
+        
+        // Send request
+        fetch('{{ route("approvals.batch") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
             }
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('error', 'An error occurred while processing the request.');
-    });
+            return response.json();
+        })
+        .then(data => {
+            console.log('Batch action response:', data);
+            if (data.success) {
+                showToast('success', data.message);
+                closeBatchModal();
+                // Reload the page after a short delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                showToast('error', data.message || 'An error occurred while processing the batch action');
+                if (data.errors) {
+                    const errorMessages = Object.values(data.errors).flat().join('\n');
+                    console.error('Validation errors:', errorMessages);
+                    alert('Validation errors:\n' + errorMessages);
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error submitting batch action:', error);
+            showToast('error', 'An error occurred while processing the request.');
+            alert('Error: ' + error.message);
+        });
+        
+    } catch (error) {
+        console.error('Error generating signature:', error);
+        alert('Error creating signature. Please try selecting a different signature style.');
+        return;
+    }
+
+    // The fetch request is now handled directly inside the try/catch block above
 }
 
 window.closeBatchModal = function() {
@@ -441,6 +508,23 @@ document.addEventListener('DOMContentLoaded', function() {
             updateSelectAllState();
         });
     });
+    
+    // Add event listener to fullName input to update previews
+    const fullNameInput = document.getElementById('fullName');
+    if (fullNameInput) {
+        fullNameInput.addEventListener('input', function() {
+            // Automatically make uppercase
+            const currentValue = this.value;
+            const upperValue = currentValue.toUpperCase();
+            
+            // Only update if different to avoid cursor jumping
+            if (currentValue !== upperValue) {
+                this.value = upperValue;
+            }
+            
+            updateAllPreviews(upperValue);
+        });
+    }
 
     function updateSelectAllState() {
         if (!selectAll) return;
@@ -508,12 +592,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load signature styles
     function loadSignatureStyles() {
+        const container = document.getElementById('signatureStyles');
+        container.innerHTML = '<p class="text-center w-full col-span-2 py-2">Loading signature styles...</p>';
+        
         fetch('{{ route("signature-styles.index") }}')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to load signature styles');
+                }
+                return response.json();
+            })
             .then(data => {
-                const container = document.getElementById('signatureStyles');
+                console.log('Signature styles response:', data);
                 container.innerHTML = '';
-                data.forEach(style => {
+                
+                // Check for data.styles (from the updated controller)
+                const styles = data.styles || data;
+                
+                if (!styles || styles.length === 0) {
+                    container.innerHTML = '<p class="text-center w-full col-span-2 py-2">No signature styles available</p>';
+                    return;
+                }
+                
+                styles.forEach(style => {
                     const div = document.createElement('div');
                     div.className = 'signature-style';
                     
@@ -537,26 +638,64 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (currentName) {
                     updateAllPreviews(currentName);
                 }
+            })
+            .catch(error => {
+                console.error('Error loading signature styles:', error);
+                container.innerHTML = `<p class="text-center w-full col-span-2 py-2 text-red-500">Error loading signature styles: ${error.message}</p>`;
             });
     }
 
     // Function to update all signature previews
     function updateAllPreviews(name) {
-        const displayText = name.trim() ? name.toUpperCase() : 'Your Signature';
-        document.querySelectorAll('.preview-text').forEach(preview => {
-            preview.textContent = displayText;
-        });
+        if (name === undefined || name === null) {
+            console.warn('updateAllPreviews called with null/undefined name');
+            name = '';
+        }
+        
+        try {
+            const displayText = name.trim() ? name.toUpperCase() : 'Your Signature';
+            console.log('Updating preview text to:', displayText);
+            
+            const previewElements = document.querySelectorAll('.preview-text');
+            console.log(`Found ${previewElements.length} preview elements to update`);
+            
+            previewElements.forEach(preview => {
+                preview.textContent = displayText;
+            });
+        } catch (error) {
+            console.error('Error updating preview text:', error);
+        }
     }
 
     function selectStyle(styleId, fontFamily, element) {
+        // Validate inputs
+        if (!styleId || !fontFamily || !element) {
+            console.error('Invalid style selection parameters:', { styleId, fontFamily, element });
+            return;
+        }
+        
+        console.log('Selecting style:', { styleId, fontFamily });
+        
         // Update selection state
         document.querySelectorAll('.signature-style').forEach(div => {
             div.classList.remove('selected');
         });
+        
+        // Add selected class to the element
         element.classList.add('selected');
+        
+        // Store the selected style information
         selectedSignatureId = styleId;
         selectedFontFamily = fontFamily;
-        signatureError.classList.add('hidden');
+        
+        // Hide any previous errors
+        document.getElementById('signatureError').classList.add('hidden');
+        
+        // Log successful selection
+        console.log('Style selected:', { 
+            selectedId: selectedSignatureId, 
+            selectedFont: selectedFontFamily 
+        });
     }
 
     function validateRequestSelection() {

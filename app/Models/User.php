@@ -93,11 +93,11 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the signature style associated with the user.
+     * Get the user's signature style.
      */
     public function signatureStyle(): BelongsTo
     {
-        return $this->belongsTo(SignatureStyle::class, 'signature_style_id', 'id');
+        return $this->belongsTo(SignatureStyle::class, 'signature_style_id');
     }
 
     /**

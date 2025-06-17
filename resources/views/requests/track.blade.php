@@ -131,9 +131,13 @@
                                         </div>
                                         <div class="ml-6">
                                             <div class="font-semibold text-gray-900 dark:text-gray-100">Currently {{ $formRequest->status }}</div>
-                                            @if($currentApprover = App\Models\User::find($formRequest->current_approver_id))
+                                            @if($currentApprover = App\Models\User::with('employeeInfo', 'department')->find($formRequest->current_approver_id))
                                                 <div class="text-sm text-gray-500 dark:text-gray-400">
-                                                    Awaiting action from {{ $currentApprover->username }}
+                                                    @if($currentApprover->position === 'VPAA' || ($currentApprover->department && $currentApprover->department->dept_code === 'VPAA'))
+                                                        Awaiting action from VPAA-2025-0050
+                                                    @else
+                                                        Awaiting action from {{ $currentApprover->username }}
+                                                    @endif
                                                 </div>
                                             @endif
                                         </div>
@@ -168,25 +172,31 @@
                                     @if($approval->action !== 'Submitted')
                                         <div class="signature-card bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
                                             @if($approval->signature_data)
-                                                <div class="signature-image-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
+                                                <div class="signature-image-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-6 py-2">
                                                     <img src="{{ $approval->signature_data }}"
                                                          alt="Digital Signature"
                                                          class="max-h-20 object-contain">
                                                 </div>
+                                            @elseif($approval->signature_style_id && $approval->signature_name)
+                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-6">
+                                                    <div class="text-xl font-signature text-center" style="font-family: '{{ \App\Models\SignatureStyle::find($approval->signature_style_id)->font_family }}', cursive; line-height: 1.2; letter-spacing: 0.5px; padding: 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
+                                                        {{ strtoupper($approval->signature_name) }}
+                                                    </div>
+                                                </div>
                                             @elseif($approval->signature_name && $approval->approver && $approval->approver->signatureStyle)
-                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
-                                                    <div class="text-xl font-signature text-center" style="font-family: '{{ $approval->approver->signatureStyle->font_family }}', cursive;">
+                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-6">
+                                                    <div class="text-xl font-signature text-center" style="font-family: '{{ $approval->approver->signatureStyle->font_family }}', cursive; line-height: 1.2; letter-spacing: 0.5px; padding: 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
                                                         {{ strtoupper($approval->signature_name) }}
                                                     </div>
                                                 </div>
                                             @elseif($approval->signature_name)
-                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
-                                                    <div class="text-xl font-signature text-center" style="font-family: 'Dancing Script', cursive;">
+                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-6">
+                                                    <div class="text-xl font-signature text-center" style="font-family: 'Dancing Script', cursive; line-height: 1.2; letter-spacing: 0.5px; padding: 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
                                                         {{ strtoupper($approval->signature_name) }}
                                                     </div>
                                                 </div>
                                             @else
-                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
+                                                <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-6">
                                                     <div class="text-sm text-gray-500 italic">No signature image/style</div>
                                                 </div>
                                             @endif
@@ -255,11 +265,11 @@
                                             </div>
                                         @elseif($approval->signature_name && $approval->approver && $approval->approver->signatureStyle)
                                             <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
-                                                <div class="text-xl font-signature text-center" style="font-family: '{{ $approval->approver->signatureStyle->font_family }}', cursive;">{{ strtoupper($approval->signature_name) }}</div>
+                                                <div class="text-xl font-signature text-center" style="font-family: '{{ $approval->approver->signatureStyle->font_family }}', cursive; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">{{ strtoupper($approval->signature_name) }}</div>
                                             </div>
                                         @elseif($approval->signature_name)
                                             <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">
-                                                <div class="text-xl font-signature text-center" style="font-family: 'Dancing Script', cursive;">{{ strtoupper($approval->signature_name) }}</div>
+                                                <div class="text-xl font-signature text-center" style="font-family: 'Dancing Script', cursive; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">{{ strtoupper($approval->signature_name) }}</div>
                                             </div>
                                         @else
                                             <div class="signature-text-container h-24 flex items-center justify-center border-b border-gray-100 dark:border-gray-700 px-2">

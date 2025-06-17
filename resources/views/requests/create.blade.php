@@ -411,6 +411,17 @@
                             }
 
                             if (iomToDepartmentNameDisplay) {
+                                // Remove existing options for Administration department from datalist
+                                if (departmentDatalist && departmentDatalist.options) {
+                                    for (let i = departmentDatalist.options.length - 1; i >= 0; i--) {
+                                        const option = departmentDatalist.options[i];
+                                        if (option.value.toLowerCase().includes('administration') || 
+                                            option.value.toLowerCase().includes('admin')) {
+                                            departmentDatalist.removeChild(option);
+                                        }
+                                    }
+                                }
+                                
                                 iomToDepartmentNameDisplay.addEventListener('input', function() {
                                     const inputValue = this.value;
                                     let found = false;
@@ -426,6 +437,36 @@
                                     }
                                     if (!found) {
                                         iomToDepartmentIdHidden.value = ''; 
+                                    } else {
+                                        // Check if the department is Administration
+                                        if (inputValue.toLowerCase().includes("administration") || inputValue.toLowerCase().includes("admin")) {
+                                            // Reset the value and show error message
+                                            this.value = '';
+                                            iomToDepartmentIdHidden.value = '';
+                                            
+                                            // Create or update error message
+                                            let errorDiv = document.getElementById('admin-dept-error');
+                                            if (!errorDiv) {
+                                                errorDiv = document.createElement('div');
+                                                errorDiv.id = 'admin-dept-error';
+                                                errorDiv.className = 'text-sm text-red-600 dark:text-red-400 mt-2';
+                                                this.parentNode.appendChild(errorDiv);
+                                            }
+                                            errorDiv.textContent = 'The Administration department cannot be selected for IOM requests. Please choose another department.';
+                                            
+                                            // Remove error message after 5 seconds
+                                            setTimeout(() => {
+                                                if (errorDiv && errorDiv.parentNode) {
+                                                    errorDiv.parentNode.removeChild(errorDiv);
+                                                }
+                                            }, 5000);
+                                        } else {
+                                            // Remove any existing error message
+                                            const errorDiv = document.getElementById('admin-dept-error');
+                                            if (errorDiv && errorDiv.parentNode) {
+                                                errorDiv.parentNode.removeChild(errorDiv);
+                                            }
+                                        }
                                     }
                                 });
 

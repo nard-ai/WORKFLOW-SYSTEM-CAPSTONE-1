@@ -21,6 +21,7 @@ class FormApproval extends Model
         'action_date',
         'signature_name',
         'signature_data',
+        'signature_style_id',
     ];
 
     protected $casts = [
@@ -38,8 +39,9 @@ class FormApproval extends Model
         return $this->belongsTo(User::class, 'approver_id', 'accnt_id');
     }
 
-    public function signatureStyleApplied()
+    public function signatureStyleApplied(): BelongsTo
     {
-        return $this->belongsTo(SignatureStyle::class, 'signature_style_id');
+        return $this->belongsTo(SignatureStyle::class, 'signature_style_id')
+            ->withDefault(['font_family' => 'Dancing Script']); // Provide a default font if none is set
     }
 }
