@@ -47,6 +47,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/requests/edit-before-confirmation', [RequestController::class, 'editBeforeConfirmation'])->name('request.edit_before_confirmation'); // New: for going back to edit from confirmation
     Route::post('/requests', [RequestController::class, 'store'])->name('request.store'); // Unified store action (now for final submission from confirmation)
 
+    // Notification Count API for badge notifications
+    Route::get('/notifications/count', [\App\Http\Controllers\NotificationController::class, 'getCount'])->name('notifications.count');
+
     // Approvals Route (for users with 'Approver' accessRole)
     Route::get('/approvals', [ApprovalController::class, 'index'])
         ->name('approvals.index')

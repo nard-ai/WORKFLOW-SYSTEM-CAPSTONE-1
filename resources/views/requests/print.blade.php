@@ -48,12 +48,18 @@
             border-bottom: 2px solid #000;
         }
         .logo {
-            max-height: 60px;
-            margin-right: 20px;
+            height: 60px;
+            width: auto;
+        }
+        .iso-logo {
+            height: 60px;
+            width: auto;
+            margin-left: auto; /* Push to the right */
         }
         .header-content {
-            flex: 1;
+            flex-grow: 1;
             text-align: center;
+            padding: 0 20px;
         }
         .header-right {
             width: 60px;
@@ -167,7 +173,7 @@
                 <h1>{{ $formRequest->form_type === 'IOM' ? 'INTER-OFFICE MEMORANDUM' : 'LEAVE REQUEST FORM' }} #{{ $formRequest->form_id }}</h1>
                 <p>Generated on {{ now()->format('F j, Y g:i A') }}</p>
             </div>
-            <div class="header-right"></div>
+            <img src="{{ asset('images/iso.jpg') }}" alt="ISO Certification" class="iso-logo">
         </div>
 
         <!-- Request Details -->
@@ -292,4 +298,4 @@
         };
     </script>
 </body>
-</html> 
+</html>

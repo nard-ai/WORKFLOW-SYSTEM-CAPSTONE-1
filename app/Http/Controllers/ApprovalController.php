@@ -28,6 +28,11 @@ class ApprovalController extends Controller
     {
         $user = Auth::user();
 
+        // Get filter values from the request
+        $typeFilter = $request->input('type');
+        $dateRangeFilter = $request->input('date_range', 'all'); // Default to all
+        $priorityFilter = $request->input('priority');
+
         // Check if this is a VPAA user - if so, use our special implementation
         // to ensure Head leave requests are visible
         if (
@@ -41,6 +46,51 @@ class ApprovalController extends Controller
 
             // Get all requests using our special VPAA-specific query
             $specialVpaaRequests = \App\Http\Controllers\FixVPAAApprovals::getRequestsForVPAA();
+
+            // Apply filters to the collection for VPAA
+            if ($typeFilter) {
+                $specialVpaaRequests = $specialVpaaRequests->where('form_type', $typeFilter);
+            }
+
+            // Date range filtering for collection
+            if ($dateRangeFilter !== 'all') {
+                $specialVpaaRequests = $specialVpaaRequests->filter(function ($item) use ($dateRangeFilter) {
+                    if (!$item->date_submitted)
+                        return false;
+
+                    $submitDate = Carbon::parse($item->date_submitted);
+                    $today = Carbon::today();
+
+                    switch ($dateRangeFilter) {
+                        case 'today':
+                            return $submitDate->isToday();
+                        case 'week':
+                            return $submitDate->isCurrentWeek();
+                        case 'month':
+                            return $submitDate->isCurrentMonth();
+                        default:
+                            return true;
+                    }
+                });
+            }
+
+            // Priority filtering - need to join with IOM details
+            if ($priorityFilter) {
+                $specialVpaaRequests = $specialVpaaRequests->filter(function ($item) use ($priorityFilter) {
+                    // Only IOM forms have priority
+                    if ($item->form_type !== 'IOM')
+                        return false;
+
+                    // Load the IOM details if not already loaded
+                    if (!$item->relationLoaded('iomDetails')) {
+                        $item->load('iomDetails');
+                    }
+
+                    return $item->iomDetails &&
+                        strtolower($item->iomDetails->priority) === strtolower($priorityFilter);
+                });
+            }
+
             // Skip the standard query building since we're using our special implementation
             $requests = $specialVpaaRequests;
 
@@ -89,6 +139,11 @@ class ApprovalController extends Controller
         // Base query for requests (for non-VPAA users)
         $query = FormRequest::query()
             ->with(['requester', 'requester.department', 'approvals']);
+
+        // Add appropriate joins for filtering
+        if ($priorityFilter && $typeFilter == 'IOM') {
+            $query->join('iom_details', 'form_requests.form_id', '=', 'iom_details.form_id');
+        }
 
         // Get VPAA department ID once to avoid multiple queries
         $vpaaDepartment = Department::where('dept_code', 'VPAA')
@@ -212,7 +267,33 @@ class ApprovalController extends Controller
                     }
                 }
             }
-        })->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
+        })->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);        // Apply type filter
+        if ($typeFilter) {
+            $query->where('form_type', $typeFilter);
+        }
+
+        // Apply date range filter
+        if ($dateRangeFilter && $dateRangeFilter !== 'all') {
+            switch ($dateRangeFilter) {
+                case 'today':
+                    $query->whereDate('date_submitted', Carbon::today());
+                    break;
+                case 'week':
+                    $query->whereBetween('date_submitted', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()]);
+                    break;
+                case 'month':
+                    $query->whereMonth('date_submitted', Carbon::now()->month)
+                        ->whereYear('date_submitted', Carbon::now()->year);
+                    break;
+            }
+        }
+
+        // Apply priority filter (only for IOM requests)
+        if ($priorityFilter && $typeFilter === 'IOM') {
+            $query->whereHas('iomDetails', function ($q) use ($priorityFilter) {
+                $q->where('priority', $priorityFilter);
+            });
+        }
 
         // Calculate statistics
         $pendingCount = (clone $query)->whereIn('status', ['Pending', 'In Progress', 'Pending Target Department Approval'])->count();
@@ -232,7 +313,8 @@ class ApprovalController extends Controller
             'avgTime' => $this->calculateAverageProcessingTime()
         ];
 
-        // Get the final paginated results
+        // Get the final paginated results - ensure we have the relations loaded for filtering
+        $query->with(['iomDetails', 'leaveDetails']);
         $formRequests = $query->latest('date_submitted')->paginate(10);
 
         // Calculate approval rate

@@ -31,6 +31,14 @@
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+        
+        <!-- Debug flag for JavaScript -->
+        <script>
+            window.debugMode = {{ config('app.debug') ? 'true' : 'false' }};
+        </script>
+        
+        <!-- Notification Badge Script -->
+        <script src="{{ asset('js/notification-badge.js') }}"></script>
 
         <style>
             [x-cloak] { display: none !important; }
@@ -95,5 +103,7 @@
                 }
             }, true);
         </script>
+        
+        @stack('scripts')
     </body>
 </html>

@@ -54,15 +54,15 @@
                         {{-- Name Input --}}
                         <div>
                             <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Type your full name
+                                Full Name
                             </label>
                             <input type="text" 
                                 id="name" 
                                 name="name" 
-                                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50 dark:bg-gray-700"
                                 style="text-transform: uppercase;"
-                                placeholder="Your legal name"
                                 value="{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}"
+                                readonly
                                 required>
                         </div>
 

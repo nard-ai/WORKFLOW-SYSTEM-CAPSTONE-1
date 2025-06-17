@@ -37,40 +37,130 @@ class ViewComposerServiceProvider extends ServiceProvider
                 $pendingCountQuery = FormRequest::query()
                     // First exclude the user's own requests 
                     ->where('requested_by', '!=', $userAccntId)
+                    ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']) // Put this at top level
                     ->where(function ($mainQuery) use ($userAccntId, $userDepartmentId, $userPosition, $userAccessRole) {
                         // 1. Requests directly assigned to the user via current_approver_id
                         $mainQuery->where('current_approver_id', $userAccntId);
 
-                        // 2. OR, if the user has approval permissions (include Viewer role for Staff)
-                        if (
-                            ($userPosition === 'Head' || $userPosition === 'VPAA') ||
-                            ($userPosition === 'Staff' && in_array($userAccessRole, ['Approver', 'Viewer']))
-                        ) {
-                            // 2a. Requests FROM the user's department, status 'Pending', and current_approver_id is NULL.
-                            $mainQuery->orWhere(function ($subQuery) use ($userDepartmentId) {
-                                $subQuery->where('from_department_id', $userDepartmentId)
-                                    ->where('status', 'Pending')
-                                    ->whereNull('current_approver_id');
-                            });
+                        // For Staff, Head, and VPAA users that have approval permissions
+                        if ($userAccessRole === 'Approver' || $userAccessRole === 'Viewer') {
+                            // Special case for VPAA: Include leave requests from all Department Heads
+                            if ($userPosition === 'VPAA') {
+                                $mainQuery->orWhere(function ($subQuery) {
+                                    // Get leave requests from any department head that's not specifically routed to someone else
+                                    $subQuery->where('form_type', 'Leave')
+                                        ->whereHas('requester', function ($query) {
+                                        $query->where('position', 'Head');
+                                    })
+                                        ->whereIn('status', ['Pending', 'In Progress'])
+                                        ->whereNull('current_approver_id');
+                                });
 
-                            // 2b. Requests TO the user's department, status 'In Progress' or 'Pending Target Department Approval',
-                            //     and current_approver_id is NULL.
-                            $mainQuery->orWhere(function ($subQuery) use ($userDepartmentId) {
-                                $subQuery->where('to_department_id', $userDepartmentId)
-                                    ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                                    ->whereNull('current_approver_id');
-                            });
+                                // Also include requests to the VPAA's department
+                                $mainQuery->orWhere(function ($vpaaDepQuery) use ($userDepartmentId) {
+                                    $vpaaDepQuery->where('to_department_id', $userDepartmentId)
+                                        ->whereIn('status', ['In Progress', 'Pending Target Department Approval', 'Pending']);
+                                });
+                            }
+
+                            // For Department Head: Include requests from their department without a specific approver
+                            if ($userPosition === 'Head') {
+                                // Requests FROM the user's department, status 'Pending', and current_approver_id is NULL.
+                                $mainQuery->orWhere(function ($subQuery) use ($userDepartmentId) {
+                                    $subQuery->where('from_department_id', $userDepartmentId)
+                                        ->where('status', 'Pending')
+                                        ->whereNull('current_approver_id');
+                                });
+
+                                // Requests TO the user's department, status 'In Progress', and current_approver_id is NULL.
+                                $mainQuery->orWhere(function ($subQuery) use ($userDepartmentId) {
+                                    $subQuery->where('to_department_id', $userDepartmentId)
+                                        ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                                        ->whereNull('current_approver_id');
+                                });
+                            }
+                            // For Staff (both Approver and Viewer)
+                            if ($userPosition === 'Staff') {
+                                $mainQuery->orWhere(function ($staffQuery) use ($userDepartmentId) {
+                                    // Show all requests from their department, but exclude leave requests from Head
+                                    $staffQuery->where(function ($fromDept) use ($userDepartmentId) {
+                                        $fromDept->where('from_department_id', $userDepartmentId)
+                                            ->where('status', 'Pending');
+
+                                        // Get head users in the department
+                                        $headUsers = \App\Models\User::where('position', 'Head')
+                                            ->where('department_id', $userDepartmentId)
+                                            ->pluck('accnt_id')
+                                            ->toArray();
+
+                                        // Exclude leave requests from department heads
+                                        if (!empty($headUsers)) {
+                                            $fromDept->where(function ($query) use ($headUsers) {
+                                                $query->where('form_type', '!=', 'Leave')
+                                                    ->orWhereNotIn('requested_by', $headUsers);
+                                            });
+                                        }
+                                    });
+
+                                    // Show requests assigned to their department only after being noted
+                                    $staffQuery->orWhere(function ($toDept) use ($userDepartmentId) {
+                                        $toDept->where('to_department_id', $userDepartmentId)
+                                            ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                                            ->whereHas('approvals', function ($approvalQ) {
+                                                $approvalQ->where('action', 'Noted');
+                                            });
+                                    });
+                                });
+                            }
                         }
-                    })
-                    ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']); // Match controller's exclusion
+                    });
 
                 $pendingCount = $pendingCountQuery->count();
 
+                // For Staff users, ensure the count matches exactly what's shown in the Approvals page
+                if ($userPosition === 'Staff' && ($userAccessRole === 'Approver' || $userAccessRole === 'Viewer')) {
+                    // CRITICAL FIX: Use a clean, direct query for Staff badge count
+                    // Build a fresh query that matches exactly what's shown in the table in ApprovalController
+                    $staffApprovalQuery = FormRequest::query()
+                        ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled'])
+                        ->where(function ($mainQ) use ($userDepartmentId) {
+                            // Logic for requests FROM the Staff's department
+                            $mainQ->where(function ($fromDeptQuery) use ($userDepartmentId) {
+                                $fromDeptQuery->where('from_department_id', $userDepartmentId)
+                                    ->where('status', 'Pending');
+
+                                // Get all head users in the department
+                                $headUsers = \App\Models\User::where('position', 'Head')
+                                    ->where('department_id', $userDepartmentId)
+                                    ->pluck('accnt_id')
+                                    ->toArray();
+
+                                // Exclude leave requests from department heads
+                                if (!empty($headUsers)) {
+                                    $fromDeptQuery->where(function ($query) use ($headUsers) {
+                                        $query->where('form_type', '!=', 'Leave')
+                                            ->orWhereNotIn('requested_by', $headUsers);
+                                    });
+                                }
+                            });
+
+                            // Logic for requests TO the Staff's department (must be 'Noted')
+                            $mainQ->orWhere(function ($toDeptQuery) use ($userDepartmentId) {
+                                $toDeptQuery->where('to_department_id', $userDepartmentId)
+                                    ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                                    ->whereHas('approvals', function ($approvalQ) {
+                                        $approvalQ->where('action', 'Noted');
+                                    });
+                            });
+                        });
+
+                    $pendingCount = $staffApprovalQuery->count();
+                }
+
+                $view->with('pendingApprovalCount', $pendingCount);
             } else {
                 $pendingCount = 0;
             }
-
-            $view->with('pendingApprovalCount', $pendingCount);
         });
     }
 }

@@ -54,9 +54,9 @@
                                     <label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Priority</label>
                                     <select name="priority" id="priority" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
                                         <option value="">All Priorities</option>
-                                        <option value="high" {{ request('priority') === 'high' ? 'selected' : '' }}>High</option>
-                                        <option value="normal" {{ request('priority') === 'normal' ? 'selected' : '' }}>Normal</option>
-                                        <option value="low" {{ request('priority') === 'low' ? 'selected' : '' }}>Low</option>
+                                        <option value="Urgent" {{ request('priority') === 'Urgent' ? 'selected' : '' }}>Urgent</option>
+                                        <option value="Rush" {{ request('priority') === 'Rush' ? 'selected' : '' }}>Rush</option>
+                                        <option value="Routine" {{ request('priority') === 'Routine' ? 'selected' : '' }}>Routine</option>
                                     </select>
                                 </div>
                                 <div class="flex items-end">
@@ -172,15 +172,15 @@
                 <!-- Name Input -->
                 <div class="mb-4">
                     <label for="fullName" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Type your full name
+                        Full Name
                     </label>
                     <input type="text" 
                         id="fullName" 
                         name="fullName" 
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50 dark:bg-gray-700"
                         style="text-transform: uppercase;"
-                        placeholder="Your legal name"
                         value="{{ Auth::user()->employeeInfo->FirstName }} {{ Auth::user()->employeeInfo->LastName }}"
+                        readonly
                         required>
                 </div>
 
@@ -733,4 +733,29 @@ document.addEventListener('DOMContentLoaded', function() {
         return { valid: true, message: '' };
     }
 });
-</script> 
+</script>
+
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const typeSelect = document.getElementById('type');
+        const priorityDiv = document.getElementById('priority').closest('div');
+        
+        // Function to toggle priority visibility based on type
+        function togglePriorityVisibility() {
+            if (typeSelect.value === 'IOM' || typeSelect.value === '') {
+                priorityDiv.style.display = 'block';
+            } else {
+                priorityDiv.style.display = 'none';
+                document.getElementById('priority').value = ''; // Reset priority when hidden
+            }
+        }
+        
+        // Initial setting
+        togglePriorityVisibility();
+        
+        // Add event listener for changes
+        typeSelect.addEventListener('change', togglePriorityVisibility);
+    });
+</script>
+@endpush

@@ -34,7 +34,7 @@
                         <x-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
                             {{ __('Approvals') }}
                             @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
-                                <span class="absolute top-[15%] right-0 translate-x-3/4 inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full">
+                                <span class="notification-badge absolute top-[15%] right-0 translate-x-3/4 inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full">
                                     {{ $pendingApprovalCount }}
                                 </span>
                             @endif
@@ -139,7 +139,7 @@
                 <x-responsive-nav-link :href="route('approvals.index')" :active="request()->routeIs('approvals.index')" class="relative inline-flex items-center">
                     {{ __('Approvals') }}
                     @if(isset($pendingApprovalCount) && $pendingApprovalCount > 0)
-                        <span class="inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full -ml-1">
+                        <span class="notification-badge inline-flex items-center justify-center h-4 w-4 text-xs font-semibold text-white bg-red-500 rounded-full -ml-1">
                             {{ $pendingApprovalCount }}
                         </span>
                     @endif
