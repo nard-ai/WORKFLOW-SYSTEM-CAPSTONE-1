@@ -29,50 +29,288 @@
                         </div>
                     </div>
 
-                    <!-- Filters -->
+                    <!-- Enhanced Filters with Search -->
                     <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg mb-6">
                         <div class="p-6">
-                            <form action="{{ route('approvals.index') }}" method="GET" class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div>
-                                    <label for="type" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Request Type</label>
-                                    <select name="type" id="type" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
-                                        <option value="">All Types</option>
-                                        <option value="IOM" {{ request('type') === 'IOM' ? 'selected' : '' }}>IOM</option>
-                                        <option value="Leave" {{ request('type') === 'Leave' ? 'selected' : '' }}>Leave</option>
-                                    </select>
+                            <form action="{{ route('approvals.index') }}" method="GET" class="space-y-4">
+                                <!-- Preserve active tab -->
+                                <input type="hidden" name="tab" value="{{ $activeTab ?? 'awaiting' }}">
+                                
+                                <!-- Search Bar -->
+                                <div class="w-full">
+                                    <div class="relative">
+                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                            </svg>
+                                        </div>
+                                        <input 
+                                            type="text" 
+                                            name="search" 
+                                            id="searchInput"
+                                            class="block w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            placeholder="Search by requester name, title, ID, or department..."
+                                            value="{{ request('search') }}"
+                                        >
+                                        @if(request('search'))
+                                            <button type="button" onclick="clearSearch()" class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                                                <svg class="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        @endif
+                                    </div>
                                 </div>
-                                <div>
-                                    <label for="date_range" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Date Range</label>
-                                    <select name="date_range" id="date_range" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
-                                        <option value="today" {{ request('date_range') === 'today' ? 'selected' : '' }}>Today</option>
-                                        <option value="week" {{ request('date_range') === 'week' ? 'selected' : '' }}>This Week</option>
-                                        <option value="month" {{ request('date_range') === 'month' ? 'selected' : '' }}>This Month</option>
-                                        <option value="all" {{ request('date_range') === 'all' ? 'selected' : '' }}>All Time</option>
-                                    </select>
+
+                                <!-- Filter Grid -->
+                                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                    <div>
+                                        <label for="type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Request Type</label>
+                                        <select name="type" id="type" class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="">All Types</option>
+                                            <option value="IOM" {{ request('type') === 'IOM' ? 'selected' : '' }}>IOM</option>
+                                            <option value="Leave" {{ request('type') === 'Leave' ? 'selected' : '' }}>Leave</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="date_range" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date Range</label>
+                                        <select name="date_range" id="date_range" class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="all" {{ request('date_range') === 'all' ? 'selected' : '' }}>All Time</option>
+                                            <option value="today" {{ request('date_range') === 'today' ? 'selected' : '' }}>Today</option>
+                                            <option value="week" {{ request('date_range') === 'week' ? 'selected' : '' }}>This Week</option>
+                                            <option value="month" {{ request('date_range') === 'month' ? 'selected' : '' }}>This Month</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
+                                        <select name="priority" id="priority" class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="">All Priorities</option>
+                                            <option value="Urgent" {{ request('priority') === 'Urgent' ? 'selected' : '' }}>Urgent</option>
+                                            <option value="Rush" {{ request('priority') === 'Rush' ? 'selected' : '' }}>Rush</option>
+                                            <option value="Routine" {{ request('priority') === 'Routine' ? 'selected' : '' }}>Routine</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="per_page" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Per Page</label>
+                                        <select name="per_page" id="per_page" class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="10" {{ request('per_page', 10) == 10 ? 'selected' : '' }}>10</option>
+                                            <option value="25" {{ request('per_page') == 25 ? 'selected' : '' }}>25</option>
+                                            <option value="50" {{ request('per_page') == 50 ? 'selected' : '' }}>50</option>
+                                            <option value="100" {{ request('per_page') == 100 ? 'selected' : '' }}>100</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-end space-x-2">
+                                        <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                                            Apply
+                                        </button>
+                                        <button type="button" onclick="clearAllFilters()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                                            Clear
+                                        </button>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label for="priority" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Priority</label>
-                                    <select name="priority" id="priority" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
-                                        <option value="">All Priorities</option>
-                                        <option value="Urgent" {{ request('priority') === 'Urgent' ? 'selected' : '' }}>Urgent</option>
-                                        <option value="Rush" {{ request('priority') === 'Rush' ? 'selected' : '' }}>Rush</option>
-                                        <option value="Routine" {{ request('priority') === 'Routine' ? 'selected' : '' }}>Routine</option>
-                                    </select>
+
+                                <!-- Active Filters Display -->
+                                @if(request()->hasAny(['search', 'type', 'date_range', 'priority']) && (request('search') || request('type') || (request('date_range') && request('date_range') !== 'all') || request('priority')))
+                                <div class="flex items-center space-x-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                                    <span class="text-sm text-gray-500 dark:text-gray-400">Active filters:</span>
+                                    <div class="flex flex-wrap gap-2">
+                                        @if(request('search'))
+                                            <span class="filter-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                                Search: "{{ Str::limit(request('search'), 20) }}"
+                                                <button type="button" class="ml-1.5 inline-flex items-center justify-center h-4 w-4 rounded-full text-blue-400 hover:bg-blue-200 hover:text-blue-600 focus:outline-none transition-all duration-200" onclick="removeFilter('search')">
+                                                    <span class="sr-only">Remove search filter</span>
+                                                    <svg class="h-2 w-2" stroke="currentColor" fill="none" viewBox="0 0 8 8">
+                                                        <path stroke-linecap="round" stroke-width="1.5" d="m1 1 6 6m0-6-6 6" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        @endif
+                                        @if(request('type'))
+                                            <span class="filter-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                                Type: {{ request('type') }}
+                                                <button type="button" class="ml-1.5 inline-flex items-center justify-center h-4 w-4 rounded-full text-purple-400 hover:bg-purple-200 hover:text-purple-600 focus:outline-none transition-all duration-200" onclick="removeFilter('type')">
+                                                    <span class="sr-only">Remove type filter</span>
+                                                    <svg class="h-2 w-2" stroke="currentColor" fill="none" viewBox="0 0 8 8">
+                                                        <path stroke-linecap="round" stroke-width="1.5" d="m1 1 6 6m0-6-6 6" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        @endif
+                                        @if(request('date_range') && request('date_range') !== 'all')
+                                            <span class="filter-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                                Date: {{ ucfirst(str_replace('_', ' ', request('date_range'))) }}
+                                                <button type="button" class="ml-1.5 inline-flex items-center justify-center h-4 w-4 rounded-full text-green-400 hover:bg-green-200 hover:text-green-600 focus:outline-none transition-all duration-200" onclick="removeFilter('date_range')">
+                                                    <span class="sr-only">Remove date filter</span>
+                                                    <svg class="h-2 w-2" stroke="currentColor" fill="none" viewBox="0 0 8 8">
+                                                        <path stroke-linecap="round" stroke-width="1.5" d="m1 1 6 6m0-6-6 6" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        @endif
+                                        @if(request('priority'))
+                                            <span class="filter-badge inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                                Priority: {{ request('priority') }}
+                                                <button type="button" class="ml-1.5 inline-flex items-center justify-center h-4 w-4 rounded-full text-orange-400 hover:bg-orange-200 hover:text-orange-600 focus:outline-none transition-all duration-200" onclick="removeFilter('priority')">
+                                                    <span class="sr-only">Remove priority filter</span>
+                                                    <svg class="h-2 w-2" stroke="currentColor" fill="none" viewBox="0 0 8 8">
+                                                        <path stroke-linecap="round" stroke-width="1.5" d="m1 1 6 6m0-6-6 6" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        @endif
+                                    </div>
                                 </div>
-                                <div class="flex items-end">
-                                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md">
-                                        Apply Filters
-                                    </button>
-                                </div>
+                                @endif
                             </form>
                         </div>
                     </div>
 
+                    <!-- Filter JavaScript Functions - Load immediately -->
+                    <script>
+                        // Make functions globally available immediately
+                        window.clearSearch = function() {
+                            console.log('clearSearch called');
+                            const searchInput = document.getElementById('searchInput');
+                            if (searchInput) {
+                                searchInput.value = '';
+                                
+                                // Show loading feedback
+                                const clearButton = document.querySelector('button[onclick="clearSearch()"]');
+                                if (clearButton) {
+                                    clearButton.classList.add('filter-button-loading');
+                                    clearButton.disabled = true;
+                                }
+                                
+                                const form = searchInput.closest('form');
+                                if (form) {
+                                    console.log('Submitting form to clear search');
+                                    form.submit();
+                                } else {
+                                    console.error('Form not found for search input');
+                                }
+                            } else {
+                                console.error('Search input not found');
+                            }
+                        };
+
+                        // Clear all filters function
+                        window.clearAllFilters = function() {
+                            console.log('clearAllFilters called');
+                            const form = document.querySelector('form');
+                            if (form) {
+                                const activeTab = form.querySelector('input[name="tab"]');
+                                const tabValue = activeTab ? activeTab.value : 'awaiting';
+                                
+                                // Show loading feedback
+                                const clearButton = document.querySelector('button[onclick="clearAllFilters()"]');
+                                if (clearButton) {
+                                    clearButton.classList.add('filter-button-loading');
+                                    clearButton.disabled = true;
+                                    clearButton.textContent = 'Clearing...';
+                                }
+                                
+                                console.log('Redirecting to clear all filters, keeping tab:', tabValue);
+                                // Keep only the tab parameter
+                                window.location.href = window.location.pathname + '?tab=' + tabValue;
+                            } else {
+                                console.error('Form not found for clearAllFilters');
+                            }
+                        };
+
+                        // Remove individual filter function
+                        window.removeFilter = function(filterName) {
+                            console.log('removeFilter called for:', filterName);
+                            const url = new URL(window.location.href);
+                            const params = new URLSearchParams(url.search);
+                            
+                            // Show loading feedback for the specific filter badge
+                            const filterBadge = document.querySelector(`button[onclick="removeFilter('${filterName}')"]`);
+                            if (filterBadge) {
+                                const badge = filterBadge.closest('.filter-badge');
+                                if (badge) {
+                                    badge.style.opacity = '0.6';
+                                    badge.style.pointerEvents = 'none';
+                                }
+                            }
+                            
+                            console.log('Before removing filter:', params.toString());
+                            params.delete(filterName);
+                            params.delete('page'); // Reset pagination when removing filters
+                            
+                            // If no parameters remain except tab, ensure tab is preserved
+                            if (!params.has('tab')) {
+                                params.set('tab', 'awaiting');
+                            }
+                            
+                            console.log('After removing filter:', params.toString());
+                            url.search = params.toString();
+                            console.log('Redirecting to:', url.toString());
+                            window.location.href = url.toString();
+                        };
+
+                        // Debug: Check if functions are available
+                        console.log('Filter functions loaded:', {
+                            clearSearch: typeof window.clearSearch,
+                            clearAllFilters: typeof window.clearAllFilters,
+                            removeFilter: typeof window.removeFilter
+                        });
+                    </script>
+
                     <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                         <div class="p-6 text-gray-900 dark:text-gray-100">
+                            {{-- Tab Navigation --}}
+                            <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
+                                <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                    @php
+                                        $tabs = [
+                                            'awaiting' => 'Awaiting Action',
+                                            'approved' => 'Approved',
+                                            'rejected' => 'Rejected',
+                                            'noted' => 'Noted'
+                                        ];
+                                    @endphp
+
+                                    @foreach($tabs as $tab => $label)
+                                        <a href="{{ route('approvals.index', array_merge(request()->query(), ['tab' => $tab])) }}"
+                                            class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
+                                                @if(($activeTab ?? 'awaiting') === $tab)
+                                                    border-indigo-500 text-indigo-600 dark:text-indigo-400
+                                                @else
+                                                    border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300
+                                                    dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-300
+                                                @endif"
+                                        >
+                                            {{ $label }}
+                                            @if(isset($tabCounts[$tab]))
+                                                <span class="ml-2 py-0.5 px-2 text-xs rounded-full
+                                                    @if(($activeTab ?? 'awaiting') === $tab)
+                                                        bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-400
+                                                    @else
+                                                        bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400
+                                                    @endif"
+                                                >
+                                                    {{ $tabCounts[$tab] }}
+                                                </span>
+                                            @endif
+                                        </a>
+                                    @endforeach
+                                </nav>
+                            </div>
+
                             <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Requests Awaiting Action</h3>
-                                @if(!$formRequests->isEmpty() && Auth::user()->accessRole === 'Approver')
+                                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
+                                    @php
+                                        $currentTab = $activeTab ?? 'awaiting';
+                                        $tabTitles = [
+                                            'awaiting' => 'Requests Awaiting Action',
+                                            'approved' => 'Approved Requests',
+                                            'rejected' => 'Rejected Requests',
+                                            'noted' => 'Noted Requests'
+                                        ];
+                                    @endphp
+                                    {{ $tabTitles[$currentTab] ?? 'Requests' }}
+                                </h3>
+                                @if(!$formRequests->isEmpty() && Auth::user()->accessRole === 'Approver' && ($activeTab ?? 'awaiting') === 'awaiting')
                                     <div class="flex space-x-2">
                                         <button id="batchApproveBtn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm">
                                             Batch Approve
@@ -86,59 +324,282 @@
 
                             @if($formRequests->isEmpty())
                                 <div class="text-center py-8">
-                                    <p class="text-gray-500 dark:text-gray-400">No requests currently need your action.</p>
+                                    @php
+                                        $currentTab = $activeTab ?? 'awaiting';
+                                        $emptyMessages = [
+                                            'awaiting' => 'No requests currently need your action.',
+                                            'approved' => 'You have not approved any requests yet.',
+                                            'rejected' => 'You have not rejected any requests yet.',
+                                            'noted' => 'You have not noted any requests yet.'
+                                        ];
+                                    @endphp
+                                    <p class="text-gray-500 dark:text-gray-400">{{ $emptyMessages[$currentTab] ?? 'No requests found.' }}</p>
                                 </div>
                             @else
                                 <div class="overflow-x-auto">
                                     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                         <thead>
                                             <tr>
+                                                @if(($activeTab ?? 'awaiting') === 'awaiting' && Auth::user()->accessRole === 'Approver')
+                                                    <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                        <input type="checkbox" id="selectAll" class="rounded border-gray-300 dark:border-gray-600 text-indigo-600">
+                                                    </th>
+                                                @endif
+                                                
+                                                {{-- Sortable Headers --}}
+                                                @php
+                                                    $currentSort = request('sort', 'date_submitted');
+                                                    $currentDirection = request('direction', 'desc');
+                                                    
+                                                    function getSortUrl($field, $currentSort, $currentDirection) {
+                                                        $direction = ($currentSort === $field && $currentDirection === 'asc') ? 'desc' : 'asc';
+                                                        return request()->url() . '?' . http_build_query(array_merge(request()->query(), [
+                                                            'sort' => $field,
+                                                            'direction' => $direction
+                                                        ]));
+                                                    }
+                                                    
+                                                    function getSortIcon($field, $currentSort, $currentDirection) {
+                                                        if ($currentSort !== $field) {
+                                                            return '<svg class="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>';
+                                                        }
+                                                        
+                                                        if ($currentDirection === 'asc') {
+                                                            return '<svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"></path></svg>';
+                                                        } else {
+                                                            return '<svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"></path></svg>';
+                                                        }
+                                                    }
+                                                @endphp
+                                                
                                                 <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                                    <input type="checkbox" id="selectAll" class="rounded border-gray-300 dark:border-gray-600 text-indigo-600">
+                                                    <a href="{{ getSortUrl('form_id', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                        ID
+                                                        {!! getSortIcon('form_id', $currentSort, $currentDirection) !!}
+                                                    </a>
                                                 </th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
+                                                
+                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                    <a href="{{ getSortUrl('form_type', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                        Type
+                                                        {!! getSortIcon('form_type', $currentSort, $currentDirection) !!}
+                                                    </a>
+                                                </th>
+                                                
                                                 <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Requester</th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Title/Subject</th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Submitted</th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Wait Time</th>
-                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                                                
+                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                    <a href="{{ getSortUrl('title', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                        Title/Subject
+                                                        {!! getSortIcon('title', $currentSort, $currentDirection) !!}
+                                                    </a>
+                                                </th>
+                                                
+                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                    <a href="{{ getSortUrl('date_submitted', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                        @if(($activeTab ?? 'awaiting') === 'awaiting')
+                                                            Submitted
+                                                        @else
+                                                            Action Date
+                                                        @endif
+                                                        {!! getSortIcon('date_submitted', $currentSort, $currentDirection) !!}
+                                                    </a>
+                                                </th>
+                                                
+                                                @if(($activeTab ?? 'awaiting') === 'awaiting')
+                                                    <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Wait Time</th>
+                                                @endif
+                                                
+                                                @if(request('type') === 'IOM')
+                                                    <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                        <a href="{{ getSortUrl('priority', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                            Priority
+                                                            {!! getSortIcon('priority', $currentSort, $currentDirection) !!}
+                                                        </a>
+                                                    </th>
+                                                @endif
+                                                
+                                                @if(in_array($activeTab ?? 'awaiting', ['rejected', 'noted']))
+                                                    <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Comments</th>
+                                                @endif
+                                                
+                                                <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                                    <a href="{{ getSortUrl('status', $currentSort, $currentDirection) }}" class="group flex items-center hover:text-gray-900 dark:hover:text-gray-100">
+                                                        Status
+                                                        {!! getSortIcon('status', $currentSort, $currentDirection) !!}
+                                                    </a>
+                                                </th>
+                                                
                                                 <th class="px-6 py-3 bg-gray-50 dark:bg-gray-800 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                                             @foreach($formRequests as $request)
-                                                <tr>
-                                                    <td class="px-6 py-4 whitespace-nowrap">
-                                                        @if(Auth::user()->accessRole === 'Approver')
+                                                @php
+                                                    $currentTab = $activeTab ?? 'awaiting';
+                                                    $userApproval = null;
+                                                    if ($currentTab !== 'awaiting') {
+                                                        $actionMap = [
+                                                            'approved' => 'Approved',
+                                                            'rejected' => 'Rejected', 
+                                                            'noted' => 'Noted'
+                                                        ];
+                                                        $userApproval = $request->approvals->where('approver_id', Auth::user()->accnt_id)
+                                                                                          ->where('action', $actionMap[$currentTab])
+                                                                                          ->first();
+                                                    }
+                                                    
+                                                    // Check if request is overdue (more than 2 days old)
+                                                    $isOverdue = $request->date_submitted && 
+                                                                $request->date_submitted->lt(now()->subDays(2)) && 
+                                                                in_array(strtolower($request->status), ['pending', 'in progress']);
+                                                                
+                                                    // Priority indicator for IOM requests
+                                                    $priority = $request->form_type === 'IOM' && $request->iomDetails ? $request->iomDetails->priority : null;
+                                                @endphp
+                                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-150 {{ $isOverdue ? 'border-l-4 border-red-500' : '' }}">
+                                                    @if(($activeTab ?? 'awaiting') === 'awaiting' && Auth::user()->accessRole === 'Approver')
+                                                        <td class="px-6 py-4 whitespace-nowrap">
                                                             <input type="checkbox" name="selected_requests[]" value="{{ $request->form_id }}" class="request-checkbox rounded border-gray-300 dark:border-gray-600 text-indigo-600">
-                                                        @endif
+                                                        </td>
+                                                    @endif
+                                                    
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                                                        <div class="flex items-center">
+                                                            {{ $request->form_id }}
+                                                            @if($isOverdue)
+                                                                <span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" title="Overdue">
+                                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                                    </svg>
+                                                                </span>
+                                                            @endif
+                                                        </div>
                                                     </td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ $request->form_id }}</td>
+                                                    
                                                     <td class="px-6 py-4 whitespace-nowrap">
                                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                                                             {{ $request->form_type === 'IOM' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' }}">
                                                             {{ $request->form_type }}
                                                         </span>
                                                     </td>
+                                                    
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                                                        {{ $request->requester->employeeInfo->FirstName }} {{ $request->requester->employeeInfo->LastName }}
-                                                        <div class="text-xs text-gray-500 dark:text-gray-400">
-                                                            {{ $request->requester->department->dept_name }}
+                                                        <div class="flex items-center">
+                                                            <div class="flex-shrink-0 h-8 w-8">
+                                                                <div class="h-8 w-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                                                                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                                                        {{ strtoupper(substr($request->requester->employeeInfo->FirstName ?? 'U', 0, 1)) }}{{ strtoupper(substr($request->requester->employeeInfo->LastName ?? 'U', 0, 1)) }}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div class="ml-3">
+                                                                <div class="font-medium">{{ $request->requester->employeeInfo->FirstName ?? 'N/A' }} {{ $request->requester->employeeInfo->LastName ?? '' }}</div>
+                                                                <div class="text-xs text-gray-500 dark:text-gray-400">
+                                                                    {{ $request->requester->department->dept_name ?? 'N/A' }}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{{ $request->title }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                        {{ $request->date_submitted->format('M j, Y g:i A') }}
+                                                    
+                                                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+                                                        <div class="max-w-xs">
+                                                            <div class="font-medium">{{ Str::limit($request->title, 40) }}</div>
+                                                            @if($request->form_type === 'IOM' && $request->iomDetails && $request->iomDetails->purpose)
+                                                                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ Str::limit($request->iomDetails->purpose, 60) }}</div>
+                                                            @endif
+                                                        </div>
                                                     </td>
+                                                    
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                                        {{ $request->date_submitted->diffForHumans() }}
+                                                        @if(($activeTab ?? 'awaiting') === 'awaiting')
+                                                            <div>{{ $request->date_submitted?->format('M j, Y') ?? 'N/A' }}</div>
+                                                            <div class="text-xs">{{ $request->date_submitted?->format('g:i A') ?? '' }}</div>
+                                                        @else
+                                                            <div>{{ $userApproval?->action_date?->format('M j, Y') ?? 'N/A' }}</div>
+                                                            <div class="text-xs">{{ $userApproval?->action_date?->format('g:i A') ?? '' }}</div>
+                                                        @endif
                                                     </td>
+                                                    
+                                                    @if(($activeTab ?? 'awaiting') === 'awaiting')
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                            @if($request->date_submitted)
+                                                                @php
+                                                                    $waitTime = $request->date_submitted->diffInHours(now());
+                                                                @endphp
+                                                                <span class="
+                                                                    @if($waitTime < 24) text-green-600 dark:text-green-400
+                                                                    @elseif($waitTime < 48) text-yellow-600 dark:text-yellow-400
+                                                                    @else text-red-600 dark:text-red-400
+                                                                    @endif
+                                                                ">
+                                                                    {{ $request->date_submitted->diffForHumans() }}
+                                                                </span>
+                                                            @else
+                                                                <span class="text-gray-400">N/A</span>
+                                                            @endif
+                                                        </td>
+                                                    @endif
+                                                    
+                                                    @if(request('type') === 'IOM')
+                                                        <td class="px-6 py-4 whitespace-nowrap">
+                                                            @if($priority)
+                                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                                                                    @switch(strtolower($priority))
+                                                                        @case('urgent')
+                                                                            bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+                                                                            @break
+                                                                        @case('rush')
+                                                                            bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200
+                                                                            @break
+                                                                        @case('routine')
+                                                                            bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200
+                                                                            @break
+                                                                        @default
+                                                                            bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200
+                                                                    @endswitch">
+                                                                    {{ $priority }}
+                                                                </span>
+                                                            @else
+                                                                <span class="text-gray-400 text-xs">N/A</span>
+                                                            @endif
+                                                        </td>
+                                                    @endif
+                                                    
+                                                    @if(in_array($activeTab ?? 'awaiting', ['rejected', 'noted']))
+                                                        <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+                                                            <div class="max-w-xs">
+                                                                {{ Str::limit($userApproval?->comments ?? 'No comments', 50) }}
+                                                            </div>
+                                                        </td>
+                                                    @endif
                                                     <td class="px-6 py-4 whitespace-nowrap">
                                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
-                                                            {{ $request->status === 'Pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : 
-                                                               ($request->status === 'In Progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : 
-                                                               'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200') }}"
+                                                            @switch(strtolower($request->status))
+                                                                @case('pending')
+                                                                    bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
+                                                                    @break
+                                                                @case('in progress')
+                                                                    bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200
+                                                                    @break
+                                                                @case('pending department head approval')
+                                                                    bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
+                                                                    @break
+                                                                @case('pending target department approval')
+                                                                    bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200
+                                                                    @break
+                                                                @case('approved')
+                                                                    bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200
+                                                                    @break
+                                                                @case('rejected')
+                                                                    bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200
+                                                                    @break
+                                                                @case('noted')
+                                                                    bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200
+                                                                    @break
+                                                                @default
+                                                                    bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200
+                                                            @endswitch"
                                                             data-status="{{ $request->status }}">
                                                             {{ $request->status }}
                                                         </span>
@@ -146,13 +607,20 @@
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                         <a href="{{ route('approvals.show', $request) }}" 
                                                            class="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300">
-                                                            View/Action
+                                                            @if(($activeTab ?? 'awaiting') === 'awaiting')
+                                                                View/Action
+                                                            @else
+                                                                View Details
+                                                            @endif
                                                         </a>
                                                     </td>
                                                 </tr>
                                             @endforeach
                                         </tbody>
                                     </table>
+                                </div>
+                                <div class="mt-4">
+                                    {{ $formRequests->links() }}
                                 </div>
                             @endif
                         </div>
@@ -735,7 +1203,330 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+@push('styles')
+<style>
+    /* Enhanced filter UI styles */
+    .filter-loading {
+        border-radius: 0.5rem;
+    }
+    
+    .filter-button-loading {
+        pointer-events: none;
+        opacity: 0.6;
+    }
+    
+    .filter-button-loading::after {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        margin: auto;
+        border: 2px solid transparent;
+        border-top-color: currentColor;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    /* Enhanced filter badge styling */
+    .filter-badge {
+        transition: all 0.2s ease-in-out;
+    }
+    
+    .filter-badge:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .filter-badge button:hover {
+        transform: scale(1.1);
+    }
+    
+    /* Loading state for forms */
+    .form-loading {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .form-loading::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+        animation: loading-shimmer 1.5s infinite;
+        z-index: 1;
+    }
+    
+    @keyframes loading-shimmer {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
+    
+    /* Smooth transitions for filter elements */
+    select, input[type="text"] {
+        transition: all 0.2s ease-in-out;
+    }
+    
+    select:focus, input[type="text"]:focus {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    }
+</style>
+@endpush
+
 @push('scripts')
+<script>
+    // Enhanced search functionality with debounce
+    document.addEventListener('DOMContentLoaded', function() {
+        let searchTimeout;
+        const searchInput = document.getElementById('searchInput');
+        
+        if (searchInput) {
+            searchInput.addEventListener('input', function(e) {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    // Auto-submit form after 500ms of no typing
+                    if (e.target.value.length > 2 || e.target.value.length === 0) {
+                        // Add subtle loading indicator
+                        const searchIcon = e.target.parentElement.querySelector('svg');
+                        if (searchIcon) {
+                            searchIcon.classList.add('animate-pulse');
+                        }
+                        
+                        e.target.closest('form').submit();
+                    }
+                }, 500);
+            });
+            
+            // Add immediate feedback for typing
+            searchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.closest('form').submit();
+                }
+            });
+        }
+    });
+
+    // Auto-apply filters when changed (except search)
+    document.addEventListener('DOMContentLoaded', function() {
+        ['type', 'date_range', 'priority', 'per_page'].forEach(filterName => {
+            const element = document.getElementById(filterName);
+            if (element) {
+                element.addEventListener('change', function() {
+                    // Show loading state
+                    const form = this.closest('form');
+                    if (form) {
+                        // Add loading class to form
+                        form.classList.add('opacity-75', 'pointer-events-none');
+                        
+                        // Submit form
+                        form.submit();
+                    }
+                });
+            }
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl/Cmd + F to focus search
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select();
+                }
+            }
+            
+            // Escape to clear search if focused
+            if (e.key === 'Escape') {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && document.activeElement === searchInput) {
+                    window.clearSearch();
+                }
+                
+                // Close any open modals
+                const modals = document.querySelectorAll('.modal, [class*="modal"]');
+                modals.forEach(modal => {
+                    if (!modal.classList.contains('hidden')) {
+                        modal.classList.add('hidden');
+                    }
+                });
+            }
+        });
+    });
+
+    // Enhanced batch selection with better UX
+    document.addEventListener('DOMContentLoaded', function() {
+        const selectAllCheckbox = document.getElementById('selectAll');
+        const requestCheckboxes = document.querySelectorAll('.request-checkbox');
+        const batchButtons = document.querySelectorAll('#batchApproveBtn, #batchRejectBtn');
+
+        // Add loading state for filter actions
+        function showFilterLoading() {
+            const filterContainer = document.querySelector('.bg-white.dark\\:bg-gray-800.overflow-hidden.shadow-sm.sm\\:rounded-lg.mb-6');
+            if (filterContainer && !filterContainer.querySelector('.filter-loading')) {
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = 'filter-loading absolute inset-0 bg-white dark:bg-gray-800 bg-opacity-75 flex items-center justify-center z-10';
+                loadingDiv.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Applying filters...</span>
+                    </div>
+                `;
+                
+                if (filterContainer.style.position !== 'relative') {
+                    filterContainer.style.position = 'relative';
+                }
+                filterContainer.appendChild(loadingDiv);
+                
+                // Remove after 10 seconds as fallback
+                setTimeout(() => {
+                    if (loadingDiv.parentNode) {
+                        loadingDiv.remove();
+                    }
+                }, 10000);
+            }
+        }
+
+        // Add event listeners to all filter-related buttons
+        const filterButtons = document.querySelectorAll('button[onclick*="clear"], button[onclick*="remove"]');
+        filterButtons.forEach(button => {
+            button.addEventListener('click', showFilterLoading);
+        });
+
+        // Add event listeners to form submissions
+        const filterForm = document.querySelector('form');
+        if (filterForm) {
+            filterForm.addEventListener('submit', showFilterLoading);
+        }
+
+        // Select all functionality
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', function() {
+                requestCheckboxes.forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+                updateBatchButtons();
+            });
+        }
+
+        // Individual checkbox change
+        requestCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                updateBatchButtons();
+                updateSelectAllState();
+            });
+        });
+
+        function updateSelectAllState() {
+            if (!selectAllCheckbox) return;
+            
+            const checkedCount = document.querySelectorAll('.request-checkbox:checked').length;
+            const totalCount = requestCheckboxes.length;
+            
+            if (checkedCount === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedCount === totalCount) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            }
+        }
+
+        function updateBatchButtons() {
+            const checkedCount = document.querySelectorAll('.request-checkbox:checked').length;
+            
+            batchButtons.forEach(button => {
+                if (checkedCount > 0) {
+                    button.disabled = false;
+                    button.classList.remove('opacity-50', 'cursor-not-allowed');
+                    
+                    // Update button text to show count
+                    const action = button.id.includes('Approve') ? 'Approve' : 'Reject';
+                    button.textContent = `${action} Selected (${checkedCount})`;
+                } else {
+                    button.disabled = true;
+                    button.classList.add('opacity-50', 'cursor-not-allowed');
+                    
+                    // Reset button text
+                    const action = button.id.includes('Approve') ? 'Batch Approve' : 'Batch Reject';
+                    button.textContent = action;
+                }
+            });
+        }
+
+        // Initialize button states
+        updateBatchButtons();
+    });
+
+    // Loading state for table actions
+    function showTableLoading() {
+        const tableContainer = document.querySelector('.overflow-x-auto');
+        if (tableContainer) {
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'absolute inset-0 bg-white dark:bg-gray-800 bg-opacity-75 flex items-center justify-center z-10';
+            loadingOverlay.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Loading...</span>
+                </div>
+            `;
+            
+            tableContainer.style.position = 'relative';
+            tableContainer.appendChild(loadingOverlay);
+            
+            // Remove after 5 seconds as fallback
+            setTimeout(() => {
+                if (loadingOverlay.parentNode) {
+                    loadingOverlay.remove();
+                }
+            }, 5000);
+        }
+    }
+
+    // Show loading on form submit and pagination clicks
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', showTableLoading);
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        // Ctrl/Cmd + F to focus search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+            e.preventDefault();
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+        
+        // Escape to clear search
+        if (e.key === 'Escape') {
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput && document.activeElement === searchInput) {
+                clearSearch();
+            }
+        }
+    });
+</script>
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const typeSelect = document.getElementById('type');

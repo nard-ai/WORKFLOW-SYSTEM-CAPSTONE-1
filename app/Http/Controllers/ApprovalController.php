@@ -19,19 +19,19 @@ use Exception;
 
 class ApprovalController extends Controller
 {
-    use AuthorizesRequests;
-
-    /**
-     * Display a listing of requests awaiting the current user's approval.
-     */
+    use AuthorizesRequests;    /**
+          * Display a listing of requests awaiting the current user's approval.
+          */
     public function index(Request $request): View
     {
-        $user = Auth::user();
-
-        // Get filter values from the request
+        $user = Auth::user();        // Get filter values from the request
         $typeFilter = $request->input('type');
         $dateRangeFilter = $request->input('date_range', 'all'); // Default to all
         $priorityFilter = $request->input('priority');
+        $searchFilter = $request->input('search');
+
+        // Get active tab from request - default to 'awaiting'
+        $activeTab = $request->input('tab', 'awaiting');
 
         // Check if this is a VPAA user - if so, use our special implementation
         // to ensure Head leave requests are visible
@@ -42,10 +42,38 @@ class ApprovalController extends Controller
                     $q->where('dept_code', 'VPAA')
                         ->orWhere('dept_name', 'like', '%Vice President for Academic Affairs%');
                 })->exists() && in_array($user->accessRole, ['Approver', 'Viewer']))
-        ) {
-
-            // Get all requests using our special VPAA-specific query
+        ) {            // Get all requests using our special VPAA-specific query
             $specialVpaaRequests = \App\Http\Controllers\FixVPAAApprovals::getRequestsForVPAA();
+
+            // For non-awaiting tabs, we need to get a broader set of requests
+            if ($activeTab !== 'awaiting') {
+                // Get additional requests that the user has actioned
+                $actionedRequests = FormRequest::with(['requester', 'requester.department', 'approvals', 'iomDetails', 'leaveDetails'])
+                    ->whereHas('approvals', function ($q) use ($user, $activeTab) {
+                        $q->where('approver_id', $user->accnt_id);
+
+                        switch ($activeTab) {
+                            case 'approved':
+                                $q->where('action', 'Approved');
+                                break;
+                            case 'rejected':
+                                $q->where('action', 'Rejected');
+                                break;
+                            case 'noted':
+                                $q->where('action', 'Noted');
+                                break;
+                        }
+                    })
+                    ->get();
+
+                // Merge the collections and remove duplicates
+                $specialVpaaRequests = $specialVpaaRequests->merge($actionedRequests)->unique('form_id');
+            }
+
+            // Apply tab filtering for VPAA - but only for awaiting tab since others are already filtered above
+            if ($activeTab !== 'awaiting') {
+                $specialVpaaRequests = $this->applyTabFilterToCollection($specialVpaaRequests, $activeTab, $user);
+            }
 
             // Apply filters to the collection for VPAA
             if ($typeFilter) {
@@ -89,7 +117,98 @@ class ApprovalController extends Controller
                     return $item->iomDetails &&
                         strtolower($item->iomDetails->priority) === strtolower($priorityFilter);
                 });
+            }            // Apply search filter for VPAA collection
+            if ($searchFilter) {
+                $specialVpaaRequests = $specialVpaaRequests->filter(function ($item) use ($searchFilter) {
+                    // Load relations if not already loaded
+                    if (!$item->relationLoaded('requester')) {
+                        $item->load(['requester.employeeInfo', 'requester.department']);
+                    }
+
+                    // Search in various fields
+                    $searchLower = strtolower($searchFilter);
+
+                    return (
+                        str_contains(strtolower($item->form_id), $searchLower) ||
+                        str_contains(strtolower($item->title ?? ''), $searchLower) ||
+                        str_contains(strtolower($item->requester->employeeInfo->FirstName ?? ''), $searchLower) ||
+                        str_contains(strtolower($item->requester->employeeInfo->LastName ?? ''), $searchLower) ||
+                        str_contains(strtolower(($item->requester->employeeInfo->FirstName ?? '') . ' ' . ($item->requester->employeeInfo->LastName ?? '')), $searchLower) ||
+                        str_contains(strtolower($item->requester->department->dept_name ?? ''), $searchLower) ||
+                        str_contains(strtolower($item->requester->department->dept_code ?? ''), $searchLower)
+                    );
+                });
             }
+
+            // Ensure all necessary relations are loaded for display
+            $specialVpaaRequests->each(function ($request) {
+                if (!$request->relationLoaded('requester')) {
+                    $request->load(['requester.employeeInfo', 'requester.department']);
+                }
+                if (!$request->relationLoaded('iomDetails')) {
+                    $request->load('iomDetails');
+                }
+                if (!$request->relationLoaded('leaveDetails')) {
+                    $request->load('leaveDetails');
+                }
+                if (!$request->relationLoaded('approvals')) {
+                    $request->load('approvals');
+                }
+            });
+
+            // Apply sorting for VPAA collection
+            $sortField = $request->input('sort', 'date_submitted');
+            $sortDirection = $request->input('direction', 'desc');
+
+            // Validate sort field
+            $allowedSortFields = ['date_submitted', 'form_type', 'status', 'form_id', 'title'];
+            if (!in_array($sortField, $allowedSortFields)) {
+                $sortField = 'date_submitted';
+            }
+
+            // Sort the collection
+            $specialVpaaRequests = $specialVpaaRequests->sortBy(function ($item) use ($sortField) {
+                switch ($sortField) {
+                    case 'date_submitted':
+                        return $item->date_submitted ? $item->date_submitted->timestamp : 0;
+                    case 'form_id':
+                        return (int) $item->form_id;
+                    case 'title':
+                        return strtolower($item->title ?? '');
+                    case 'form_type':
+                        return $item->form_type;
+                    case 'status':
+                        return $item->status;
+                    default:
+                        return $item->date_submitted ? $item->date_submitted->timestamp : 0;
+                }
+            }, SORT_REGULAR, $sortDirection === 'desc');
+
+            // Manual pagination for VPAA collection
+            $perPage = $request->input('per_page', 10);
+            if (!in_array($perPage, [10, 25, 50, 100])) {
+                $perPage = 10;
+            }
+
+            $currentPage = $request->input('page', 1);
+            $offset = ($currentPage - 1) * $perPage;
+            $total = $specialVpaaRequests->count();
+
+            // Get items for current page
+            $paginatedItems = $specialVpaaRequests->slice($offset, $perPage)->values();
+
+            // Create manual paginator
+            $formRequests = new \Illuminate\Pagination\LengthAwarePaginator(
+                $paginatedItems,
+                $total,
+                $perPage,
+                $currentPage,
+                [
+                    'path' => $request->url(),
+                    'pageName' => 'page',
+                ]
+            );
+            $formRequests->withQueryString();
 
             // Skip the standard query building since we're using our special implementation
             $requests = $specialVpaaRequests;
@@ -107,36 +226,17 @@ class ApprovalController extends Controller
                     return $item->date_submitted && Carbon::parse($item->date_submitted)->format('Y-m-d') < $twoDaysAgo;
                 })->count(),
                 'avgTime' => $this->calculateAverageProcessingTime()
-            ];
+            ];            // Calculate tab counts for VPAA
+            $tabCounts = $this->calculateTabCounts($user);
 
-            // Calculate approval rate (copied from standard implementation)
-            $totalFinalized = FormRequest::where(function ($q) use ($user) {
-                $q->where('from_department_id', $user->department_id)
-                    ->orWhere('to_department_id', $user->department_id);
-            })
-                ->whereIn('status', ['Approved', 'Rejected'])
-                ->count();
-
-            $totalApproved = FormRequest::where(function ($q) use ($user) {
-                $q->where('from_department_id', $user->department_id)
-                    ->orWhere('to_department_id', $user->department_id);
-            })
-                ->where('status', 'Approved')
-                ->count();
-
-            $approvalRate = $totalFinalized > 0
-                ? round(($totalApproved / $totalFinalized) * 100)
-                : 0;
-
-            // Return the view with the same variables as the standard implementation
+            // Return the view with paginated results for VPAA
             return view('approvals.index', [
-                'formRequests' => $requests,
+                'formRequests' => $formRequests,  // Use the paginated results
                 'stats' => $stats,
-                'approvalRate' => $approvalRate
+                'activeTab' => $activeTab,
+                'tabCounts' => $tabCounts
             ]);
-        }
-
-        // Base query for requests (for non-VPAA users)
+        }        // Base query for requests (for non-VPAA users)
         $query = FormRequest::query()
             ->with(['requester', 'requester.department', 'approvals']);
 
@@ -160,114 +260,16 @@ class ApprovalController extends Controller
             'isVPAADepartment' => $isVPAADepartment
         ]);
 
-        // Determine requests awaiting action or departmental view
-        $query->where(function ($mainQuery) use ($user, $isVPAADepartment) {            // For VPAA department users (any position)
-            if ($isVPAADepartment && in_array($user->accessRole, ['Approver', 'Viewer'])) {
-                Log::debug('ApprovalController: User is in VPAA department', [
-                    'department_id' => $user->department_id
-                ]);
+        // Apply tab filtering to query
+        if ($activeTab === 'awaiting') {
+            // Original awaiting logic
+            $this->applyAwaitingFilter($query, $user, $isVPAADepartment);
+        } else {
+            // Apply tab-specific filtering
+            $this->applyTabFilter($query, $activeTab, $user);
+        }
 
-                $mainQuery->where(function ($vpaaQuery) use ($user) {
-                    // Show all requests targeted to VPAA department
-                    $vpaaQuery->where(function ($targetQuery) use ($user) {
-                        $targetQuery->where('to_department_id', $user->department_id)
-                            ->whereIn('status', ['In Progress', 'Pending Target Department Approval', 'Pending']);
-                    });
-                    // Show all leave requests from Head positions in any department
-                    $vpaaQuery->orWhere(function ($leaveQuery) use ($user) {
-                        $leaveQuery->where('form_type', 'Leave')
-                            ->where('status', 'Pending')
-                            ->whereHas('requester', function ($query) {
-                                $query->where('position', 'Head');
-                            });
-
-                        Log::debug('ApprovalController: Adding query for Head leave requests', [
-                            'vpaa_dept_id' => $user->department_id
-                        ]);
-                    });
-
-                    // Direct query for leave requests from Heads sent to VPAA dept
-                    $vpaaQuery->orWhere(function ($leaveQuery) use ($user) {
-                        $leaveQuery->where([
-                            ['form_type', '=', 'Leave'],
-                            ['status', '=', 'Pending'],
-                            ['to_department_id', '=', $user->department_id],
-                            ['current_approver_id', '=', $user->accnt_id]
-                        ]);
-
-                        Log::debug('ApprovalController: Adding direct query for Head leave requests to current VPAA', [
-                            'current_approver_id' => $user->accnt_id
-                        ]);
-                    });
-
-                    // Also show requests from VPAA department
-                    $vpaaQuery->orWhere(function ($sourceQuery) use ($user) {
-                        $sourceQuery->where('from_department_id', $user->department_id)
-                            ->where('status', 'Pending');
-                    });
-                });
-            } else {                // For Head position
-                if ($user->position === 'Head') {
-                    $mainQuery->where(function ($headQuery) use ($user) {
-                        // Show pending requests from their department that haven't been noted yet
-                        // BUT exclude their own leave requests (which should only be visible to VPAA)
-                        $headQuery->where(function ($pendingQ) use ($user) {
-                            $pendingQ->where('from_department_id', $user->department_id)
-                                ->where('status', 'Pending')
-                                ->where(function ($excludeHeadLeave) use ($user) {
-                                    $excludeHeadLeave->where('form_type', '!=', 'Leave')
-                                        ->orWhere('requested_by', '!=', $user->accnt_id);
-                                })
-                                ->whereDoesntHave('approvals', function ($approvalQ) use ($user) {
-                                    $approvalQ->where('approver_id', $user->accnt_id)
-                                        ->where('action', 'Noted');
-                                });
-                        });
-                        // Show in-progress requests for their department only after being noted
-                        $headQuery->orWhere(function ($inProgressQ) use ($user) {
-                            $inProgressQ->where('to_department_id', $user->department_id)
-                                ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                                ->whereHas('approvals', function ($approvalQ) {
-                                    // Ensure there's at least one 'Noted' approval
-                                    $approvalQ->where('action', 'Noted');
-                                });
-                        });
-                    });
-                } else {                    // For Staff position (both Approver and Viewer)
-                    if ($user->position === 'Staff') {
-                        $mainQuery->where(function ($staffQuery) use ($user) {                            // Show all requests from their department, but exclude leave requests from Head
-                            $staffQuery->where(function ($fromDept) use ($user) {
-                                $fromDept->where('from_department_id', $user->department_id)
-                                    ->where('status', 'Pending');
-
-                                // Get all head users in the department
-                                $headUsers = \App\Models\User::where('position', 'Head')
-                                    ->where('department_id', $user->department_id)
-                                    ->pluck('accnt_id')
-                                    ->toArray();
-
-                                // Exclude leave requests from department heads
-                                if (!empty($headUsers)) {
-                                    $fromDept->where(function ($query) use ($headUsers) {
-                                        $query->where('form_type', '!=', 'Leave')
-                                            ->orWhereNotIn('requested_by', $headUsers);
-                                    });
-                                }
-                            });
-                            // Show requests assigned to their department only after being noted by source department head
-                            $staffQuery->orWhere(function ($toDept) use ($user) {
-                                $toDept->where('to_department_id', $user->department_id)
-                                    ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
-                                    ->whereHas('approvals', function ($approvalQ) {
-                                        // Ensure there's at least one 'Noted' approval
-                                        $approvalQ->where('action', 'Noted');
-                                    });
-                            });
-                        });
-                    }
-                }
-            }
-        })->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);        // Apply type filter
+        // Apply type filter
         if ($typeFilter) {
             $query->where('form_type', $typeFilter);
         }
@@ -286,60 +288,96 @@ class ApprovalController extends Controller
                         ->whereYear('date_submitted', Carbon::now()->year);
                     break;
             }
-        }
-
-        // Apply priority filter (only for IOM requests)
+        }        // Apply priority filter (only for IOM requests)
         if ($priorityFilter && $typeFilter === 'IOM') {
             $query->whereHas('iomDetails', function ($q) use ($priorityFilter) {
                 $q->where('priority', $priorityFilter);
             });
         }
 
-        // Calculate statistics
-        $pendingCount = (clone $query)->whereIn('status', ['Pending', 'In Progress', 'Pending Target Department Approval'])->count();
+        // Apply search filter
+        if ($searchFilter) {
+            $query->where(function ($q) use ($searchFilter) {
+                $q->where('form_id', 'like', "%{$searchFilter}%")
+                    ->orWhere('title', 'like', "%{$searchFilter}%")
+                    ->orWhereHas('requester.employeeInfo', function ($subQ) use ($searchFilter) {
+                        $subQ->where('FirstName', 'like', "%{$searchFilter}%")
+                            ->orWhere('LastName', 'like', "%{$searchFilter}%")
+                            ->orWhereRaw("CONCAT(FirstName, ' ', LastName) like ?", ["%{$searchFilter}%"]);
+                    })
+                    ->orWhereHas('requester.department', function ($subQ) use ($searchFilter) {
+                        $subQ->where('dept_name', 'like', "%{$searchFilter}%")
+                            ->orWhere('dept_code', 'like', "%{$searchFilter}%");
+                    });
+            });
+        }// Calculate statistics efficiently with single query
+        $baseQuery = clone $query;
+        $statsResult = $baseQuery->selectRaw("
+            COUNT(CASE WHEN status IN ('Pending', 'In Progress', 'Pending Target Department Approval') THEN 1 END) as pending_count,
+            COUNT(CASE WHEN DATE(date_submitted) = CURDATE() THEN 1 END) as today_count,
+            COUNT(CASE WHEN date_submitted < DATE_SUB(NOW(), INTERVAL 2 DAY) THEN 1 END) as overdue_count,
+            AVG(CASE 
+                WHEN status IN ('Approved', 'Rejected') 
+                THEN TIMESTAMPDIFF(HOUR, date_submitted, updated_at) 
+            END) as avg_processing_hours
+        ")->first();
 
-        $todayCount = (clone $query)
-            ->whereDate('date_submitted', Carbon::today())
-            ->count();
+        $pendingCount = $statsResult->pending_count ?? 0;
+        $todayCount = $statsResult->today_count ?? 0;
+        $overdueCount = $statsResult->overdue_count ?? 0;
+        $avgProcessingHours = $statsResult->avg_processing_hours ?? 0;        // Get sorting parameters
+        $sortField = $request->input('sort', 'date_submitted');
+        $sortDirection = $request->input('direction', 'desc');
 
-        $overdueCount = (clone $query)
-            ->where('date_submitted', '<', Carbon::now()->subDays(2))
-            ->count();
+        // Validate sort field to prevent SQL injection
+        $allowedSortFields = [
+            'date_submitted',
+            'form_type',
+            'status',
+            'form_id',
+            'title',
+            'priority' // For IOM requests
+        ];
+
+        if (!in_array($sortField, $allowedSortFields)) {
+            $sortField = 'date_submitted';
+        }
+
+        if (!in_array($sortDirection, ['asc', 'desc'])) {
+            $sortDirection = 'desc';
+        }
+
+        // Get pagination settings
+        $perPage = $request->input('per_page', 10);
+        if (!in_array($perPage, [10, 25, 50, 100])) {
+            $perPage = 10;
+        }
 
         $stats = [
             'pending' => $pendingCount,
             'today' => $todayCount,
             'overdue' => $overdueCount,
-            'avgTime' => $this->calculateAverageProcessingTime()
+            'avgTime' => $avgProcessingHours ? round($avgProcessingHours, 1) . 'h' : '0h'
         ];
 
+        // Apply sorting - handle special cases for joined tables
+        if ($sortField === 'priority' && $request->input('type') === 'IOM') {
+            $query->leftJoin('iom_details as sort_iom', 'form_requests.form_id', '=', 'sort_iom.form_id')
+                ->orderBy('sort_iom.priority', $sortDirection);
+        } else {
+            $query->orderBy($sortField, $sortDirection);
+        }
+
         // Get the final paginated results - ensure we have the relations loaded for filtering
-        $query->with(['iomDetails', 'leaveDetails']);
-        $formRequests = $query->latest('date_submitted')->paginate(10);
-
-        // Calculate approval rate
-        $totalFinalized = FormRequest::where(function ($q) use ($user) {
-            $q->where('from_department_id', $user->department_id)
-                ->orWhere('to_department_id', $user->department_id);
-        })
-            ->whereIn('status', ['Approved', 'Rejected'])
-            ->count();
-
-        $totalApproved = FormRequest::where(function ($q) use ($user) {
-            $q->where('from_department_id', $user->department_id)
-                ->orWhere('to_department_id', $user->department_id);
-        })
-            ->where('status', 'Approved')
-            ->count();
-
-        $approvalRate = $totalFinalized > 0
-            ? round(($totalApproved / $totalFinalized) * 100)
-            : 0;
+        $query->with(['iomDetails', 'leaveDetails', 'requester.employeeInfo', 'requester.department']);
+        $formRequests = $query->paginate($perPage)->withQueryString();// Calculate tab counts
+        $tabCounts = $this->calculateTabCounts($user);
 
         return view('approvals.index', [
             'formRequests' => $formRequests,
             'stats' => $stats,
-            'approvalRate' => $approvalRate
+            'activeTab' => $activeTab,
+            'tabCounts' => $tabCounts
         ]);
     }
 
@@ -728,6 +766,18 @@ class ApprovalController extends Controller
             }
         }
 
+        // IMPORTANT: Final status check - No actions allowed on finalized requests
+        if (in_array($formRequest->status, ['Approved', 'Rejected', 'Cancelled', 'Withdrawn'])) {
+            $canTakeAction = false;
+            $canApprovePending = false;
+            $canApproveInProgress = false;
+            \Log::info('Actions disabled for finalized request:', [
+                'form_id' => $formRequest->form_id,
+                'status' => $formRequest->status,
+                'reason' => 'Request is in final state'
+            ]);
+        }
+
         \Log::info('Final permission values:', [
             'canTakeAction' => $canTakeAction,
             'canApprovePending' => $canApprovePending,
@@ -835,6 +885,17 @@ class ApprovalController extends Controller
                 'form_type' => $formRequest->form_type,
                 'form_status' => $formRequest->status
             ]);
+
+            // CRITICAL: Check if request is already finalized
+            if (in_array($formRequest->status, ['Approved', 'Rejected', 'Cancelled', 'Withdrawn'])) {
+                \Log::warning('Attempted action on finalized request', [
+                    'user_id' => $user->accnt_id,
+                    'action' => $action,
+                    'form_id' => $formRequest->form_id,
+                    'status' => $formRequest->status
+                ]);
+                return back()->with('error', 'Cannot take action on a request that has already been finalized (status: ' . $formRequest->status . ').');
+            }
 
             // Verify user has permission to act
             if ($user->accessRole !== 'Approver') {
@@ -1132,9 +1193,244 @@ class ApprovalController extends Controller
                 $completedCount++;
             }
         }
-
         return $completedCount > 0
             ? round($totalProcessingTime / $completedCount) . 'h'
             : 'N/A';
+    }
+
+    /**
+     * Apply awaiting filter to query (original logic)
+     */
+    private function applyAwaitingFilter($query, $user, $isVPAADepartment)
+    {
+        $query->where(function ($mainQuery) use ($user, $isVPAADepartment) {
+            // For VPAA department users (any position)
+            if ($isVPAADepartment && in_array($user->accessRole, ['Approver', 'Viewer'])) {
+                Log::debug('ApprovalController: User is in VPAA department', [
+                    'department_id' => $user->department_id
+                ]);
+
+                $mainQuery->where(function ($vpaaQuery) use ($user) {
+                    // Show all requests targeted to VPAA department
+                    $vpaaQuery->where(function ($targetQuery) use ($user) {
+                        $targetQuery->where('to_department_id', $user->department_id)
+                            ->whereIn('status', ['In Progress', 'Pending Target Department Approval', 'Pending']);
+                    });
+                    // Show all leave requests from Head positions in any department
+                    $vpaaQuery->orWhere(function ($leaveQuery) use ($user) {
+                        $leaveQuery->where('form_type', 'Leave')
+                            ->where('status', 'Pending')
+                            ->whereHas('requester', function ($query) {
+                                $query->where('position', 'Head');
+                            });
+                    });
+
+                    // Direct query for leave requests from Heads sent to VPAA dept
+                    $vpaaQuery->orWhere(function ($leaveQuery) use ($user) {
+                        $leaveQuery->where([
+                            ['form_type', '=', 'Leave'],
+                            ['status', '=', 'Pending'],
+                            ['to_department_id', '=', $user->department_id],
+                            ['current_approver_id', '=', $user->accnt_id]
+                        ]);
+                    });
+
+                    // Also show requests from VPAA department
+                    $vpaaQuery->orWhere(function ($sourceQuery) use ($user) {
+                        $sourceQuery->where('from_department_id', $user->department_id)
+                            ->where('status', 'Pending');
+                    });
+                });
+            } else {
+                // For Head position
+                if ($user->position === 'Head') {
+                    $mainQuery->where(function ($headQuery) use ($user) {
+                        // Show pending requests from their department that haven't been noted yet
+                        // BUT exclude their own leave requests (which should only be visible to VPAA)
+                        $headQuery->where(function ($pendingQ) use ($user) {
+                            $pendingQ->where('from_department_id', $user->department_id)
+                                ->where('status', 'Pending')
+                                ->where(function ($excludeHeadLeave) use ($user) {
+                                    $excludeHeadLeave->where('form_type', '!=', 'Leave')
+                                        ->orWhere('requested_by', '!=', $user->accnt_id);
+                                })
+                                ->whereDoesntHave('approvals', function ($approvalQ) use ($user) {
+                                    $approvalQ->where('approver_id', $user->accnt_id)
+                                        ->where('action', 'Noted');
+                                });
+                        });
+                        // Show in-progress requests for their department only after being noted
+                        $headQuery->orWhere(function ($inProgressQ) use ($user) {
+                            $inProgressQ->where('to_department_id', $user->department_id)
+                                ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                                ->whereHas('approvals', function ($approvalQ) {
+                                    // Ensure there's at least one 'Noted' approval
+                                    $approvalQ->where('action', 'Noted');
+                                });
+                        });
+                    });
+                } else {
+                    // For Staff position (both Approver and Viewer)
+                    if ($user->position === 'Staff') {
+                        $mainQuery->where(function ($staffQuery) use ($user) {
+                            // Show all requests from their department, but exclude leave requests from Head
+                            $staffQuery->where(function ($fromDept) use ($user) {
+                                $fromDept->where('from_department_id', $user->department_id)
+                                    ->where('status', 'Pending');
+
+                                // Get all head users in the department
+                                $headUsers = \App\Models\User::where('position', 'Head')
+                                    ->where('department_id', $user->department_id)
+                                    ->pluck('accnt_id')
+                                    ->toArray();
+
+                                // Exclude leave requests from department heads
+                                if (!empty($headUsers)) {
+                                    $fromDept->where(function ($query) use ($headUsers) {
+                                        $query->where('form_type', '!=', 'Leave')
+                                            ->orWhereNotIn('requested_by', $headUsers);
+                                    });
+                                }
+                            });
+                            // Show requests assigned to their department only after being noted by source department head
+                            $staffQuery->orWhere(function ($toDept) use ($user) {
+                                $toDept->where('to_department_id', $user->department_id)
+                                    ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
+                                    ->whereHas('approvals', function ($approvalQ) {
+                                        // Ensure there's at least one 'Noted' approval
+                                        $approvalQ->where('action', 'Noted');
+                                    });
+                            });
+                        });
+                    }
+                }
+            }
+        })->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']);
+    }
+
+    /**
+     * Apply tab-specific filtering to query
+     */
+    private function applyTabFilter($query, $activeTab, $user)
+    {
+        switch ($activeTab) {
+            case 'approved':
+                $query->whereHas('approvals', function ($q) use ($user) {
+                    $q->where('approver_id', $user->accnt_id)
+                        ->where('action', 'Approved');
+                });
+                break;
+            case 'rejected':
+                $query->whereHas('approvals', function ($q) use ($user) {
+                    $q->where('approver_id', $user->accnt_id)
+                        ->where('action', 'Rejected');
+                });
+                break;
+            case 'noted':
+                $query->whereHas('approvals', function ($q) use ($user) {
+                    $q->where('approver_id', $user->accnt_id)
+                        ->where('action', 'Noted');
+                });
+                break;
+        }
+    }
+
+    /**
+     * Apply tab filtering to collection (for VPAA)
+     */
+    private function applyTabFilterToCollection($collection, $activeTab, $user)
+    {
+        switch ($activeTab) {
+            case 'approved':
+                return $collection->filter(function ($request) use ($user) {
+                    // Ensure approvals are loaded
+                    if (!$request->relationLoaded('approvals')) {
+                        $request->load('approvals');
+                    }
+
+                    return $request->approvals->contains(function ($approval) use ($user) {
+                        return $approval->approver_id === $user->accnt_id && $approval->action === 'Approved';
+                    });
+                });
+            case 'rejected':
+                return $collection->filter(function ($request) use ($user) {
+                    // Ensure approvals are loaded
+                    if (!$request->relationLoaded('approvals')) {
+                        $request->load('approvals');
+                    }
+
+                    return $request->approvals->contains(function ($approval) use ($user) {
+                        return $approval->approver_id === $user->accnt_id && $approval->action === 'Rejected';
+                    });
+                });
+            case 'noted':
+                return $collection->filter(function ($request) use ($user) {
+                    // Ensure approvals are loaded
+                    if (!$request->relationLoaded('approvals')) {
+                        $request->load('approvals');
+                    }
+
+                    return $request->approvals->contains(function ($approval) use ($user) {
+                        return $approval->approver_id === $user->accnt_id && $approval->action === 'Noted';
+                    });
+                });
+            default:
+                return $collection;
+        }
+    }
+
+    /**
+     * Calculate tab counts for the user
+     */
+    private function calculateTabCounts($user)
+    {
+        $baseQuery = FormRequest::query();
+
+        return [
+            'awaiting' => $this->getAwaitingCount($user),
+            'approved' => (clone $baseQuery)->whereHas('approvals', function ($q) use ($user) {
+                $q->where('approver_id', $user->accnt_id)->where('action', 'Approved');
+            })->count(),
+            'rejected' => (clone $baseQuery)->whereHas('approvals', function ($q) use ($user) {
+                $q->where('approver_id', $user->accnt_id)->where('action', 'Rejected');
+            })->count(),
+            'noted' => (clone $baseQuery)->whereHas('approvals', function ($q) use ($user) {
+                $q->where('approver_id', $user->accnt_id)->where('action', 'Noted');
+            })->count(),
+        ];
+    }    /**
+         * Get count of requests awaiting action
+         */
+    private function getAwaitingCount($user)
+    {
+        // Get VPAA department ID
+        $vpaaDepartment = Department::where('dept_code', 'VPAA')
+            ->orWhere('dept_name', 'like', '%Vice President for Academic Affairs%')
+            ->first();
+        $isVPAADepartment = $vpaaDepartment && $user->department_id === $vpaaDepartment->department_id;        // For VPAA users, use the same logic as the actual displayed requests
+        if (
+            $user->position === 'VPAA' ||
+            ($isVPAADepartment && in_array($user->accessRole, ['Approver', 'Viewer']))
+        ) {
+            // Use the same VPAA-specific logic to ensure count matches displayed requests
+            $vpaaRequests = \App\Http\Controllers\FixVPAAApprovals::getRequestsForVPAA();
+            $count = $vpaaRequests->count();
+
+            \Log::debug('VPAA Awaiting Count', [
+                'user_id' => $user->accnt_id,
+                'user_position' => $user->position,
+                'user_access_role' => $user->accessRole,
+                'department_id' => $user->department_id,
+                'awaiting_count' => $count,
+                'request_ids' => $vpaaRequests->pluck('form_id')->toArray()
+            ]);
+
+            return $count;
+        }
+
+        // For non-VPAA users, use the regular filter
+        $query = FormRequest::query();
+        $this->applyAwaitingFilter($query, $user, $isVPAADepartment);
+        return $query->count();
     }
 }

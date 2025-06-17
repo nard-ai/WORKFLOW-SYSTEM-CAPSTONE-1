@@ -9,8 +9,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
 class NotificationController extends Controller
-{
-    /**
+{    /**
      * Get the count of pending approvals for the current user.
      *
      * @return \Illuminate\Http\JsonResponse
@@ -22,6 +21,7 @@ class NotificationController extends Controller
         $userDepartmentId = $currentUser->department_id;
         $userPosition = $currentUser->position;
         $userAccessRole = $currentUser->accessRole;
+
         // Debug the user information only in debug mode
         if (config('app.debug')) {
             Log::debug('Getting notification count for user', [
@@ -30,36 +30,51 @@ class NotificationController extends Controller
                 'accessRole' => $userAccessRole,
                 'department_id' => $userDepartmentId
             ]);
-        }// Start building the query for pending approvals
+        }
+
+        // IMPORTANT: For VPAA users, use the same logic as ApprovalController awaiting count
+        // This ensures notification badge matches the awaiting action count
+        $vpaaDepartment = \App\Models\Department::where('dept_code', 'VPAA')
+            ->orWhere('dept_name', 'like', '%Vice President for Academic Affairs%')
+            ->first();
+        $isVPAADepartment = $vpaaDepartment && $currentUser->department_id === $vpaaDepartment->department_id;
+
+        if (
+            $currentUser->position === 'VPAA' ||
+            ($isVPAADepartment && in_array($currentUser->accessRole, ['Approver', 'Viewer']))
+        ) {
+            // Use the same VPAA-specific logic as ApprovalController
+            $vpaaRequests = \App\Http\Controllers\FixVPAAApprovals::getRequestsForVPAA();
+            $pendingCount = $vpaaRequests->count();
+
+            // Debug logging for VPAA users
+            if (config('app.debug')) {
+                Log::debug('VPAA BADGE COUNT - Using FixVPAAApprovals logic', [
+                    'user_id' => $userAccntId,
+                    'position' => $userPosition,
+                    'access_role' => $userAccessRole,
+                    'department_id' => $userDepartmentId,
+                    'count' => $pendingCount,
+                    'request_ids' => $vpaaRequests->pluck('form_id')->toArray()
+                ]);
+            }
+            return response()->json([
+                'count' => $pendingCount
+            ]);
+        }
+
+        // For non-VPAA users, use the existing logic
+        // Start building the query for pending approvals
         $pendingCountQuery = FormRequest::query()
             // First exclude the user's own requests 
             ->where('requested_by', '!=', $userAccntId)
             ->whereNotIn('status', ['Approved', 'Rejected', 'Cancelled']) // Put this at top level
             ->where(function ($mainQuery) use ($userAccntId, $userDepartmentId, $userPosition, $userAccessRole) {
                 // 1. Requests directly assigned to the user via current_approver_id
-                $mainQuery->where('current_approver_id', $userAccntId);
-
-                // For Staff, Head, and VPAA users that have approval permissions
+                $mainQuery->where('current_approver_id', $userAccntId);                // For Staff, Head, and VPAA users that have approval permissions
                 if ($userAccessRole === 'Approver' || $userAccessRole === 'Viewer') {
-                    // Special case for VPAA: Include leave requests from all Department Heads
-                    if ($userPosition === 'VPAA') {
-                        $mainQuery->orWhere(function ($subQuery) {
-                            // Get leave requests from any department head that's not specifically routed to someone else
-                            $subQuery->where('form_type', 'Leave')
-                                ->whereHas('requester', function ($query) {
-                                $query->where('position', 'Head');
-                            })
-                                ->whereIn('status', ['Pending', 'In Progress'])
-                                ->whereNull('current_approver_id');
-                        });
-
-                        // Also include requests to the VPAA's department
-                        $mainQuery->orWhere(function ($vpaaDepQuery) use ($userDepartmentId) {
-                            $vpaaDepQuery->where('to_department_id', $userDepartmentId)
-                                ->whereIn('status', ['In Progress', 'Pending Target Department Approval', 'Pending']);
-                        });
-                    }
-
+                    // Note: VPAA users are handled separately above, so this branch won't execute for them
+    
                     // For Department Head: Include requests from their department without a specific approver
                     if ($userPosition === 'Head') {
                         // Requests FROM the user's department, status 'Pending', and current_approver_id is NULL.
@@ -75,7 +90,7 @@ class NotificationController extends Controller
                                 ->whereIn('status', ['In Progress', 'Pending Target Department Approval'])
                                 ->whereNull('current_approver_id');
                         });
-                    }                    // For Staff (both Approver and Viewer): Do not use this query branch at all
+                    }// For Staff (both Approver and Viewer): Do not use this query branch at all
                     // Staff notification count comes exclusively from the direct query below
                     if ($userPosition === 'Staff') {
                         // BUGFIX: Don't add any conditions to this branch
@@ -136,29 +151,8 @@ class NotificationController extends Controller
                 ]);
             }
         } else {
-            // Execute the count query for non-staff users
+            // Execute the count query for non-staff, non-VPAA users (mainly Heads)
             $pendingCount = $pendingCountQuery->count();
-
-            // Only do fallback for VPAA for special cases
-            if (
-                $pendingCount == 0 && $userPosition === 'VPAA' &&
-                ($userAccessRole === 'Approver' || $userAccessRole === 'Viewer')
-            ) {
-                // For VPAA - do a direct check for leave requests from Heads
-                $directCount = \App\Models\FormRequest::whereNotIn('status', ['Approved', 'Rejected', 'Cancelled'])
-                    ->where(function ($query) {
-                        $query->where('form_type', 'Leave')
-                            ->whereHas('requester', function ($userQuery) {
-                                $userQuery->where('position', 'Head');
-                            });
-                    })
-                    ->where('requested_by', '!=', $userAccntId)
-                    ->count();
-
-                if ($directCount > 0) {
-                    $pendingCount = $directCount;
-                }
-            }
         }
         // Debug the final count only in debug mode
         if (config('app.debug')) {

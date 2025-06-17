@@ -34,3 +34,140 @@
     border-radius: 3px;
     /* Optional rounded corners */
 }
+
+/* Enhanced Data Table Styles */
+.data-table-row {
+    transition: all 0.15s ease-in-out;
+}
+
+.data-table-row:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.dark .data-table-row:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Table row selection states */
+.table-row-selected {
+    @apply bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700;
+}
+
+/* Smooth loading animation */
+@keyframes shimmer {
+    0% {
+        background-position: -468px 0;
+    }
+    100% {
+        background-position: 468px 0;
+    }
+}
+
+.skeleton-loader {
+    animation: shimmer 1.2s ease-in-out infinite;
+    background: linear-gradient(to right, #f6f7f8 8%, #edeef1 18%, #f6f7f8 33%);
+    background-size: 800px 104px;
+}
+
+.dark .skeleton-loader {
+    background: linear-gradient(to right, #374151 8%, #4b5563 18%, #374151 33%);
+}
+
+/* Custom scrollbar for table overflow */
+.table-container {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+.table-container::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-800;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    @apply bg-gray-400 dark:bg-gray-600 rounded;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500 dark:bg-gray-500;
+}
+
+/* Enhanced status badges */
+.status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-all duration-200;
+}
+
+.status-badge:hover {
+    transform: scale(1.05);
+}
+
+/* Priority indicators */
+.priority-urgent {
+    @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
+}
+
+.priority-high {
+    @apply bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200;
+}
+
+.priority-normal {
+    @apply bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200;
+}
+
+.priority-low {
+    @apply bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200;
+}
+
+/* Enhanced filter animations */
+.filter-fade-enter {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+.filter-fade-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 300ms, transform 300ms;
+}
+
+.filter-fade-exit {
+    opacity: 1;
+}
+
+.filter-fade-exit-active {
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 300ms, transform 300ms;
+}
+
+/* Improved focus styles for accessibility */
+.table-focus:focus {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-800;
+}
+
+/* Mobile-responsive table improvements */
+@media (max-width: 640px) {
+    .mobile-table-card {
+        @apply block bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-4 p-4;
+    }
+    
+    .mobile-table-card .table-row {
+        @apply block border-b border-gray-200 dark:border-gray-700 pb-2 mb-2 last:border-b-0 last:mb-0;
+    }
+    
+    .mobile-table-cell {
+        @apply flex justify-between items-center py-1;
+    }
+    
+    .mobile-table-label {
+        @apply font-medium text-gray-500 dark:text-gray-400 text-sm;
+    }
+    
+    .mobile-table-value {
+        @apply text-gray-900 dark:text-gray-100 text-sm;
+    }
+}

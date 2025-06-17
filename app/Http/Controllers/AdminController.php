@@ -82,42 +82,28 @@ class AdminController extends Controller
         // Approval Rate (for completed requests this year)
         $totalDecidedRequests = $requestsThisYear->whereIn('status', ['Approved', 'Rejected'])->count();
         $approvedRequestsCount = $requestsThisYear->where('status', 'Approved')->count();
-        $approvalRate = $totalDecidedRequests > 0 ? round(($approvedRequestsCount / $totalDecidedRequests) * 100, 1) : 0;
-
-        // --- Tab Counts ---
+        $approvalRate = $totalDecidedRequests > 0 ? round(($approvedRequestsCount / $totalDecidedRequests) * 100, 1) : 0;        // --- Tab Counts ---
         $counts = [];
-        $allDbRequests = (clone $allRequestsQuery)->orderBy('date_submitted', 'desc')->get(); // Get all for counts and initial table
+        $allDbRequestsForCounts = (clone $allRequestsQuery)->get(); // Get all for counts only
 
-        $counts['all_requests'] = $allDbRequests->count();
-        $counts['pending'] = $allDbRequests->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval', 'Pending Target Department Approval'])->count(); // Sum of all pending-like statuses
-        $counts['approved'] = $allDbRequests->where('status', 'Approved')->count();
-        $counts['rejected'] = $allDbRequests->where('status', 'Rejected')->count();
+        $counts['all_requests'] = $allDbRequestsForCounts->count();
+        $counts['pending'] = $allDbRequestsForCounts->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval', 'Pending Target Department Approval'])->count(); // Sum of all pending-like statuses
+        $counts['approved'] = $allDbRequestsForCounts->where('status', 'Approved')->count();
+        $counts['rejected'] = $allDbRequestsForCounts->where('status', 'Rejected')->count();        // Apply filters based on active tab (similar to staff dashboard)
+        $filteredQuery = match ($activeTab) {
+            'pending' => (clone $allRequestsQuery)->whereIn('status', [
+                'Pending',
+                'In Progress',
+                'Pending Department Head Approval',
+                'Pending Target Department Approval'
+            ]),
+            'approved' => (clone $allRequestsQuery)->where('status', 'Approved'),
+            'rejected' => (clone $allRequestsQuery)->where('status', 'Rejected'),
+            default => clone $allRequestsQuery,
+        };
 
-
-        // Filter requests based on activeTab for display
-        // This part is tricky if we want client-side DataTables to handle all data.
-        // For now, let's pass all requests and let DataTables handle filtering if possible,
-        // or adjust this if server-side filtering per tab is strictly needed with DataTables.
-        // For simplicity with initial DataTables setup, we pass all requests.
-        // If server-side processing for DataTables is implemented later, this will change.
-
-        $requestsForTable = $allDbRequests; // Pass all requests to the view
-
-        // If you were to filter by tab server-side (and not rely on DataTables for this):
-        // switch ($activeTab) {
-        //     case 'pending':
-        //         $requestsForTable = $allDbRequests->whereIn('status', ['Pending', 'In Progress', 'Pending Department Head Approval', 'Pending Target Department Approval'])->values();
-        //         break;
-        //     case 'approved':
-        //         $requestsForTable = $allDbRequests->where('status', 'Approved')->values();
-        //         break;
-        //     case 'rejected':
-        //         $requestsForTable = $allDbRequests->where('status', 'Rejected')->values();
-        //         break;
-        //     case 'all_requests':
-        //     default:
-        //         $requestsForTable = $allDbRequests;
-        //         break;
+        // Get paginated requests for the table
+        $requestsForTable = $filteredQuery->orderBy('date_submitted', 'desc')->paginate(10)->withQueryString();        //         break;
         // }
 
 

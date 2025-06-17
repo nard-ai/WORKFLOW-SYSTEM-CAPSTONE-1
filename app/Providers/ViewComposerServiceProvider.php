@@ -34,6 +34,26 @@ class ViewComposerServiceProvider extends ServiceProvider
                 $userPosition = $currentUser->position;
                 $userAccessRole = $currentUser->accessRole;
 
+                // IMPORTANT: For VPAA users, use the same logic as ApprovalController and NotificationController
+                // This ensures all three sources (ViewComposer, ApprovalController, NotificationController) are synchronized
+                $vpaaDepartment = \App\Models\Department::where('dept_code', 'VPAA')
+                    ->orWhere('dept_name', 'like', '%Vice President for Academic Affairs%')
+                    ->first();
+                $isVPAADepartment = $vpaaDepartment && $currentUser->department_id === $vpaaDepartment->department_id;
+
+                if (
+                    $currentUser->position === 'VPAA' ||
+                    ($isVPAADepartment && in_array($currentUser->accessRole, ['Approver', 'Viewer']))
+                ) {
+                    // Use the same VPAA-specific logic as ApprovalController and NotificationController
+                    $vpaaRequests = \App\Http\Controllers\FixVPAAApprovals::getRequestsForVPAA();
+                    $pendingCount = $vpaaRequests->count();
+
+                    $view->with('pendingApprovalCount', $pendingCount);
+                    return; // Early return for VPAA users
+                }
+
+                // For non-VPAA users, use the existing logic
                 $pendingCountQuery = FormRequest::query()
                     // First exclude the user's own requests 
                     ->where('requested_by', '!=', $userAccntId)
@@ -42,27 +62,8 @@ class ViewComposerServiceProvider extends ServiceProvider
                         // 1. Requests directly assigned to the user via current_approver_id
                         $mainQuery->where('current_approver_id', $userAccntId);
 
-                        // For Staff, Head, and VPAA users that have approval permissions
+                        // For Staff, Head users that have approval permissions (VPAA handled above)
                         if ($userAccessRole === 'Approver' || $userAccessRole === 'Viewer') {
-                            // Special case for VPAA: Include leave requests from all Department Heads
-                            if ($userPosition === 'VPAA') {
-                                $mainQuery->orWhere(function ($subQuery) {
-                                    // Get leave requests from any department head that's not specifically routed to someone else
-                                    $subQuery->where('form_type', 'Leave')
-                                        ->whereHas('requester', function ($query) {
-                                        $query->where('position', 'Head');
-                                    })
-                                        ->whereIn('status', ['Pending', 'In Progress'])
-                                        ->whereNull('current_approver_id');
-                                });
-
-                                // Also include requests to the VPAA's department
-                                $mainQuery->orWhere(function ($vpaaDepQuery) use ($userDepartmentId) {
-                                    $vpaaDepQuery->where('to_department_id', $userDepartmentId)
-                                        ->whereIn('status', ['In Progress', 'Pending Target Department Approval', 'Pending']);
-                                });
-                            }
-
                             // For Department Head: Include requests from their department without a specific approver
                             if ($userPosition === 'Head') {
                                 // Requests FROM the user's department, status 'Pending', and current_approver_id is NULL.
